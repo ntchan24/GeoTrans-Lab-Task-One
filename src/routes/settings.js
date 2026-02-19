@@ -1,4 +1,5 @@
-export let chartType = "bar";
+export let TODchartType = "bar";
+export let piechartType = "pie";
 
 export let myOptions = null;
 
