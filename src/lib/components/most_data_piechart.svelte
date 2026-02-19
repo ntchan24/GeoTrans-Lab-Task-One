@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 
-	export let config;
+	export let config2;
 
 	let canvas;
 	let chart = null;
@@ -15,18 +15,18 @@
 		import('chart.js/auto').then((ChartModule) => {
 			const Chart = ChartModule.default;
 
-			console.log('Initializing chart with config:', config);
+			console.log('Initializing chart with config2:', config2);
 
-			if (canvas && config) {
+			if (canvas && config2) {
 				const ctx = canvas.getContext('2d');
 
 				// Create the chart
 				chart = new Chart(ctx, {
-					...config,
+					...config2,
 					options: {
-						...config.options,
+						...config2.options,
 						responsive: true,
-						maintainAspectRatio: true
+						maintainAspectRatio: false
 					}
 				});
 
@@ -48,7 +48,7 @@
 <style>
 	.chart-container {
 		position: relative;
-		aspect-ratio: 1;
+		height:400px;
 		width: 100%;
 		margin: 20px 0;
 	}
