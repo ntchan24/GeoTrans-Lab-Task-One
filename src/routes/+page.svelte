@@ -170,13 +170,7 @@
         >
             Distance Analysis
         </button>
-        <button
-            class="tab-button"
-            class:active={activeTab === 'raw-data'}
-            on:click={() => activeTab = 'raw-data'}
-        >
-            Raw Data
-        </button>
+        
     </nav>
 
     <!-- Content Area -->
@@ -207,50 +201,23 @@
                     </div>
                 </div>
             </div>
-        {:else if activeTab === 'raw-data'}
-            <div class="data-container">
-                <h2>Raw Data View</h2>
-                <div class="data-grid">
-                    <div class="data-card">
-                        <h3>Bins Data</h3>
-                        <pre>{JSON.stringify(bins, null, 2)}</pre>
-                    </div>
-                    <div class="data-card">
-                        <h3>Log IDs</h3>
-                        <pre>{JSON.stringify(logids, null, 2)}</pre>
-                    </div>
-                    <div class="data-card">
-                        <h3>Times of Day</h3>
-                        <pre>{JSON.stringify(times_of_day, null, 2)}</pre>
-                    </div>
-                    <div class="data-card">
-                        <h3>Sensors Data</h3>
-                        <pre>{JSON.stringify(sensors, null, 2)}</pre>
-                    </div>
-                </div>
-                {#if jsonData}
-                    <div class="data-card full-width">
-                        <h3>Complete JSON Data (Total entries: {Object.keys(jsonData).length})</h3>
-                        <pre>{JSON.stringify(jsonData, null, 2)}</pre>
-                    </div>
-                {/if}
-            </div>
+        
         {/if}
     </main>
 </div>
 
-<style>
+<!-- <style>
     .dashboard-container {
         min-height: 100vh;
-        background-color: #f5f5f5;
+        background-color: white;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
     }
 
     .dashboard-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: black;
         color: white;
         padding: 2rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-bottom: 1px solid black;
     }
 
     .dashboard-header h1 {
@@ -261,7 +228,7 @@
 
     .timestamp {
         margin-top: 0.5rem;
-        opacity: 0.9;
+        opacity: 0.8;
         font-size: 0.9rem;
     }
 
@@ -270,32 +237,31 @@
         padding: 1rem 2rem;
         display: flex;
         gap: 1rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        border-bottom: 1px solid black;
         overflow-x: auto;
     }
 
     .tab-button {
         padding: 0.75rem 1.5rem;
-        background: transparent;
-        border: 2px solid #e0e0e0;
-        border-radius: 8px;
+        background: white;
+        border: 2px solid black;
+        border-radius: 0;
         cursor: pointer;
         font-size: 1rem;
         font-weight: 500;
-        color: #333;
-        transition: all 0.3s ease;
+        color: black;
+        transition: all 0.2s ease;
         white-space: nowrap;
     }
 
     .tab-button:hover {
         background: #f0f0f0;
-        border-color: #667eea;
     }
 
     .tab-button.active {
-        background: #667eea;
+        background: black;
         color: white;
-        border-color: #667eea;
+        border-color: black;
     }
 
     .dashboard-content {
@@ -306,22 +272,24 @@
 
     .chart-container {
         background: white;
-        border-radius: 12px;
+        border: 2px solid black;
+        border-radius: 0;
         padding: 2rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
 
     .chart-container h2 {
         margin-top: 0;
         margin-bottom: 1.5rem;
-        color: #333;
+        color: black;
         font-size: 1.5rem;
+        border-bottom: 2px solid black;
+        padding-bottom: 0.5rem;
     }
 
     .chart-container h3 {
         margin-top: 1.5rem;
         margin-bottom: 1rem;
-        color: #555;
+        color: black;
         font-size: 1.2rem;
     }
 
@@ -339,15 +307,17 @@
 
     .data-container {
         background: white;
-        border-radius: 12px;
+        border: 2px solid black;
+        border-radius: 0;
         padding: 2rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
 
     .data-container h2 {
         margin-top: 0;
         margin-bottom: 1.5rem;
-        color: #333;
+        color: black;
+        border-bottom: 2px solid black;
+        padding-bottom: 0.5rem;
     }
 
     .data-grid {
@@ -364,27 +334,31 @@
     }
 
     .data-card {
-        background: #f8f9fa;
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
+        background: white;
+        border: 1px solid black;
+        border-radius: 0;
         padding: 1.5rem;
     }
 
     .data-card h3 {
         margin-top: 0;
         margin-bottom: 1rem;
-        color: #555;
+        color: black;
         font-size: 1.1rem;
+        border-bottom: 1px solid black;
+        padding-bottom: 0.5rem;
     }
 
     .data-card pre {
         background: white;
         padding: 1rem;
-        border-radius: 4px;
+        border: 1px solid #ccc;
+        border-radius: 0;
         overflow-x: auto;
         font-size: 0.85rem;
         max-height: 300px;
         overflow-y: auto;
+        font-family: monospace;
     }
 
     .data-card.full-width {
@@ -419,4 +393,4 @@
             padding: 1.5rem 1rem;
         }
     }
-</style>
+</style> -->
