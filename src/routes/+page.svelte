@@ -5,11 +5,12 @@
     //bc of the file names, and "export" fxn, we can access exported data from server. 
     //we need to call the custom functions in the export function in server.
     //load() collects all the data i need from multiple functions if needed then passes it to page.svelte
-    $: ({ jsonData, logids, timestamp, times_of_day,bins,sensors } = data);
+    $: ({ jsonData, logids, timestamp, times_of_day,bins,sensors,distances } = data);
 
     import TodVisualization from '$lib/components/tod_visualization.svelte';
     import MostDataPiechart from '$lib/components/most_data_piechart.svelte';
     import MostTravelBoxplot from '$lib/components/most_travel_boxplot.svelte';
+    import MostTravelBarChart from '$lib/components/most_travel_bar_chart.svelte';
     import  {TODchartType,piechartType,myOptions} from "./settings.js"
     
     //for TOD chart 
@@ -101,6 +102,50 @@
         }
     }
 
+    //for second bar chart (most distance travelled by a sensor )
+
+    $: config3 = {
+		type,
+		data: {
+			labels: distances[0],
+			datasets: [{
+				label: 'Distances travelled by sensors',
+				data: distances[1] || [],
+				backgroundColor: 'rgba(54, 162, 235, 0.5)',
+				borderColor: 'rgba(54, 162, 235, 1)',
+				borderWidth: 1
+			}]
+		},
+		options: options || {
+			responsive: true,
+			plugins: {
+				legend: {
+					display: true,
+					position: 'top'
+				},
+				title: {
+					display: true,
+					text: 'Distance Distribution'
+				}
+			},
+			scales: {
+				y: {
+					beginAtZero: true,
+					title: {
+						display: true,
+						text: 'Distance (kM)'
+					}
+				},
+				x: {
+					title: {
+						display: true,
+						text: 'Sensor'
+					}
+				}
+			}
+		}
+	}
+
 </script>
 
 
@@ -111,6 +156,12 @@
     {#if sensors && Array.isArray(sensors) && config2}
         <MostDataPiechart {config2} />
     {/if} 
+
+    <h1>Distance Travelled by Sensor</h1>
+    <MostTravelBoxplot sensorData={distances[2]}/>
+    <MostTravelBarChart {config3}/>
+
+    
 
 	<p>Nathan's Svelte Project</p>
 	<p>raw bins: {bins}</p>
