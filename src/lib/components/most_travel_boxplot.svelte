@@ -10,7 +10,7 @@
   let chartContainer;
 
   onMount(() => {
-    // Dynamically import Chart.js and boxplot plugin to avoid SSR issues
+    //async to load the library
     Promise.all([
       import('chart.js/auto'),
       import('@sgratzl/chartjs-chart-boxplot')
@@ -18,7 +18,7 @@
       const Chart = ChartModule.default;
       const { BoxPlotController, BoxAndWiskers } = BoxplotModule;
 
-      // Manually register the boxplot controller and elements with Chart.js
+
       Chart.register(BoxPlotController, BoxAndWiskers);
 
       console.log('Boxplot component mounted with sensorData:', sensorData);
@@ -68,9 +68,7 @@
                   // Set a fixed scale range
                   min: 0,      // Minimum value on Y-axis
                   max: 1,    // Maximum value on Y-axis (adjust as needed)
-                  // Or use suggestedMin/suggestedMax for flexible bounds
-                  // suggestedMin: 0,
-                  // suggestedMax: 50
+                  
                 },
                 x: {
                   title: {

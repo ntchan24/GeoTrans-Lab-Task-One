@@ -4,7 +4,7 @@ import data from '../coe-snic-default-rtdb-logs-export.json'
 //import from src/lib/coe-snic-default-rtdb-logs-export.json
 
 // Helper function to normalize entries - converts object to array and filters nulls
-function normalizeEntries(entries) {
+export function normalizeEntries(entries) {
     if (!entries) return [];
 
     // If entries is an object (not an array), convert it to array
@@ -62,7 +62,7 @@ function getTimesOfDay(data){
 
 }
 
-function extractLogIds(data){
+export function extractLogIds(data){
     const logIds = Object.keys(data);
     return logIds
 }
@@ -206,7 +206,7 @@ function distanceFinder (data) {
     delete distances_for_sensor["_RWIS_SW"];
 
 
-    console.log(final_suffix_labels,distances, distances_for_sensor);
+    // console.log(final_suffix_labels,distances, distances_for_sensor);
     return [final_suffix_labels, distances,distances_for_sensor]
 }
 

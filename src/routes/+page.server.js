@@ -1,19 +1,11 @@
 import { extractData } from "$lib/data/processing_script";
+import { load_map_data } from "$lib/data/map_plotter";
+export async function load(){
+    return {
+        base_chart_data:extractData(),
+        map_plot_data:load_map_data(),
 
-export function load(){
-    return extractData();
-    //passes data into the page 
+    };
+
 }
 
-
-// //try in the server file first 
-// import data from '/Users/nathanielchan/Desktop/geotranslab/first_task_app/src/lib/coe-snic-default-rtdb-logs-export.json'
-
-// export function load(){
-//     // Return an object with properties that will be available in +page.svelte
-//     return {
-//         jsonData: data,
-//         // You can add more properties here if needed
-//         timestamp: new Date().toISOString()
-//     }
-// }
