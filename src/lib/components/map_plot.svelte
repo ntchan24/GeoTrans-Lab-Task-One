@@ -73,10 +73,10 @@
 <div class="dropdown-container">
   <!-- Route dropdown -->
   <div class="form-control">
-    <label class="label">
+    <label class="label" for="route-select">
       <span class="label-text">Select Route</span>
     </label>
-    <select class="select select-bordered w-full max-w-xs" bind:value={selectedRoute}>
+    <select id="route-select" class="select select-bordered w-full max-w-xs" bind:value={selectedRoute}>
       <option value="">-- Select a route --</option>
       {#each availableRoutes as route}
         <option value={route}>{route}</option>
@@ -86,10 +86,11 @@
 
   <!-- Trip dropdown -->
   <div class="form-control">
-    <label class="label">
+    <label class="label" for="trip-select">
       <span class="label-text">Select Trip</span>
     </label>
     <select
+      id="trip-select"
       class="select select-bordered w-full max-w-xs"
       bind:value={selectedTrip}
       disabled={selectedRoute === '' || availableTrips.length === 0}
