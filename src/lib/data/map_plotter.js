@@ -13,9 +13,8 @@ import { normalizeEntries,degreesToRadians, distanceInKmBetweenEarthCoordinates,
 
 //pass data to server
 export function load_map_data(){
-    return{
-        routeids:pointsProcessing(data)
-    }
+    return {routeids : pointsProcessing(data)}
+
 }
 
 
@@ -57,7 +56,7 @@ function pointsProcessing(data){
             if (data[logid] && data[logid]["entries"]){
                 const raw_entries = data[logid]["entries"]
                 const entries = normalizeEntries(raw_entries)
-
+                
 
                 const tripPoints = []
                 for (const entry of entries){

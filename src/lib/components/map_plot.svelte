@@ -14,6 +14,9 @@
 
 
   onMount(() => {
+    // Temporarily commenting out map initialization to fix dropdown functionality
+    // Uncomment this when the map container div is also uncommented
+    
     const initialState = {lat: 53.546206, lng: -113.491241, zoom: 13};
 
     map = new maplibregl.Map({
@@ -22,6 +25,7 @@
       center: [initialState.lng,initialState.lat],
       zoom: initialState.zoom
     })
+
   })
 
 
@@ -33,14 +37,72 @@
 
 
   //receive props from page.svelte, this is the points object from map plotter!!
-  let points = $props();
+  let { routeids } = $props();
 
 
+  let selectedRoute = $state('');
+  let selectedTrip = $state('');
 
+  // Debug when route changes
+  $effect(() => {
+    console.log('selectedRoute value:', selectedRoute, 'type:', typeof selectedRoute);
+  });
 
+  // Get available routes (SE, NW, CENTRAL, RWIS, RWIS_SW)
+  let availableRoutes = $derived(routeids ? Object.keys(routeids) : []);
 
+  // Get available trips for the selected route
+  let availableTrips = $derived(
+    selectedRoute && routeids && routeids[selectedRoute]
+      ? routeids[selectedRoute].map(tripObj => Object.keys(tripObj)[0])
+      : []
+  );
 
+  $effect(()=> {
+    console.log('Route changed to:', selectedRoute);
+    console.log('Available trips:', availableTrips);
+    if (selectedRoute){
+      selectedTrip = '';
+    }
+  });
+
+  //run this when any variable inside it changes
+  //svelte reactive statement
 </script>
+
+<div class="dropdown-container">
+  <!-- Route dropdown -->
+  <div class="form-control">
+    <label class="label">
+      <span class="label-text">Select Route</span>
+    </label>
+    <select class="select select-bordered w-full max-w-xs" bind:value={selectedRoute}>
+      <option value="">-- Select a route --</option>
+      {#each availableRoutes as route}
+        <option value={route}>{route}</option>
+      {/each}
+    </select>
+  </div>
+
+  <!-- Trip dropdown -->
+  <div class="form-control">
+    <label class="label">
+      <span class="label-text">Select Trip</span>
+    </label>
+    <select
+      class="select select-bordered w-full max-w-xs"
+      bind:value={selectedTrip}
+      disabled={selectedRoute === '' || availableTrips.length === 0}
+    >
+      <option value="">-- Select a trip --</option>
+      {#each availableTrips as trip}
+        <option value={trip}>{trip}</option>
+      {/each}
+    </select>
+  </div>
+</div>
+
+
 
 
 <div class="map-wrap">
@@ -49,14 +111,25 @@
   <div class="map" bind:this={mapContainer}></div>
 
 
-  <!-- <div><p>{JSON.stringify(points, null, 2)}</p></div> -->
+  <!-- <div><p>{JSON.stringify(routeids, null, 2)}</p></div> -->
 </div>
 
 <style>
+  .dropdown-container {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    background-color: #f3f4f6;
+    border-radius: 0.5rem;
+    margin: 0.5rem;
+  }
+
   .map-wrap {
     position: relative;
     width: 100%;
-    height: calc(100vh - 77px); /* calculate height of the screen minus the heading */
+    height: calc(100vh - 77px);
+    /* calculate height of the screen (viewport height) minus the heading */
+ 
   }
 
   .map {
@@ -73,23 +146,3 @@
   }
 </style>
 
-<!-- 
-<div bind:this={mapContainer} class="map-container"></div> 
-
-<style>
-  @import 'maplibre-gl/dist/maplibre-gl.css';
-
-  .map-container {
-    width: 100%;
-    height: 100vh;
-  }
-
-  /* Style the popup */
-  :global(.maplibregl-popup-content) {
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-family: system-ui, sans-serif;
-    font-size: 13px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-  }
-</style> -->

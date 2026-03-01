@@ -223,7 +223,7 @@
         {:else if activeTab === 'map-plot'}
             <div class="chart-container">
 
-                {#if sensors && Array.isArray(sensors) && config2}
+                {#if routeids && Object.keys(routeids).length > 0}
                     <MapPlot {routeids} />
                     <!-- static street map display -->
                     <!-- <iframe width="500" height="300" allow="geolocation" src="https://api.maptiler.com/maps/streets-v4/?key=UHv14Wh0RtdXjkmopUTK#11.9/53.52029/-113.48545"></iframe> -->
