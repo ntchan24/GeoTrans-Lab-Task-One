@@ -14,8 +14,7 @@
 
 
   onMount(() => {
-    // Temporarily commenting out map initialization to fix dropdown functionality
-    // Uncomment this when the map container div is also uncommented
+
     
     const initialState = {lat: 53.546206, lng: -113.491241, zoom: 13};
 
@@ -70,7 +69,7 @@
   //svelte reactive statement
 </script>
 
-<div class="dropdown-container">
+<div>
   <!-- Route dropdown -->
   <div class="form-control">
     <label class="label" for="route-select">
@@ -101,29 +100,25 @@
       {/each}
     </select>
   </div>
+
 </div>
 
-
+<div>
+  <p>{selectedRoute},{selectedTrip}</p>
+</div>
 
 
 <div class="map-wrap">
-  <a href="https://www.maptiler.com" class="watermark"><img
+  <!-- <a href="https://www.maptiler.com" class="watermark"><img
     src="https://api.maptiler.com/resources/logo.svg" alt="MapTiler logo"/></a>
-  <div class="map" bind:this={mapContainer}></div>
+  <div class="map" bind:this={mapContainer}></div> -->
 
 
-  <!-- <div><p>{JSON.stringify(routeids, null, 2)}</p></div> -->
+  <div><p>{JSON.stringify(routeids, null, 2)}</p></div>
 </div>
 
 <style>
-  .dropdown-container {
-    display: flex;
-    gap: 1rem;
-    padding: 1rem;
-    background-color: #f3f4f6;
-    border-radius: 0.5rem;
-    margin: 0.5rem;
-  }
+
 
   .map-wrap {
     position: relative;

@@ -220,7 +220,7 @@ function degreesToRadians(degrees) {
 }
 
 //this returns kms unit
-function distanceInKmBetweenEarthCoordinates(lat1, lon1, lat2, lon2) {
+export function distanceInKmBetweenEarthCoordinates(lat1, lon1, lat2, lon2) {
     var earthRadiusKm = 6371;
     
     var dLat = degreesToRadians(lat2-lat1);

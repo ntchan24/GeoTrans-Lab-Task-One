@@ -8,12 +8,18 @@
 //for each trip we need to find the points / entries 
 
 import data from '../coe-snic-default-rtdb-logs-export.json'
+import dayjs from 'dayjs';
+import duration from 'dayjs/plugin/duration';
 
-import { normalizeEntries,degreesToRadians, distanceInKmBetweenEarthCoordinates, extractLogIds } from './processing_script.js'
+dayjs.extend(duration);
+
+import { normalizeEntries, distanceInKmBetweenEarthCoordinates, extractLogIds } from './processing_script.js'
 
 //pass data to server
 export function load_map_data(){
-    return {routeids : pointsProcessing(data)}
+    // return {routeids : pointsProcessing(data)}
+    return {routeids : lineDistancesSpeed(data)}
+
 
 }
 
@@ -66,8 +72,7 @@ function pointsProcessing(data){
 
                         const pointObject = {
                             accuracy: gps_coords.accuracy,
-                            lat: gps_coords.latitude,
-                            long: gps_coords.longitude,
+                            coords:[gps_coords.latitude,gps_coords.longitude],
                             time: timestamp
                         }
                         tripPoints.push(pointObject)
@@ -85,4 +90,54 @@ function pointsProcessing(data){
     }
     // console.log(processedRoutes)
     return processedRoutes
+}
+
+function lineDistancesSpeed(data){
+    const processedRoutes = pointsProcessing(data)
+
+    //in between points for every trip, find the distance and speed and store it in between points as an object 
+    //take one point i, check if there is a i+1 point. only do something if there is something 
+    for (const route of Object.keys(processedRoutes)){
+        // console.log(route)
+        for (const trip of processedRoutes[route]){
+            const logId = Object.keys(trip)[0]
+
+
+            const points = trip[logId]
+            
+            for (let i = 0; i<points.length;i++){
+                //if a next point exists do this. if not, its the last point and there is no distance or speed to be calculated 
+                if (i+1<points.length){
+                    const point1 = points[i]
+                    const point2 = points[i+1]
+
+
+                    const distance = distanceInKmBetweenEarthCoordinates(point1.coords[0], point1.coords[1], point2.coords[0], point2.coords[1])
+                    const timebetweenpoints = timeBetweenPoints(point1.time, point2.time)
+                    
+                    const speed = distance / timebetweenpoints
+
+                    //add attributes to the points object
+                    point1.distancetoNext = distance
+                    point1.speedBetweenNext = speed
+
+                }
+            }
+
+        }
+    }
+
+    // console.log(processedRoutes)
+    return processedRoutes
+
+}
+
+function timeBetweenPoints(point1time,point2time){
+    //handle day rollover too 
+    const time1 = dayjs(point1time)
+    const time2 = dayjs(point2time)
+
+    const diff = dayjs.duration(time2.diff(time1))
+
+    return diff.asHours() 
 }
