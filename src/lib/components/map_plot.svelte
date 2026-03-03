@@ -12,10 +12,37 @@
   let map;
   let mapContainer;
 
+  let { routeids } = $props();//receive props from page.svelte, this is the points object from map plotter!!
 
   onMount(() => {
+    //handle points here using turf.js 
+    //create turf points for all the points 
 
+
+    //test points 
+    const point1 = turf.point([-113.52, 53.54], { name: 'Edmonton' });
+    const point2 = turf.point([-114.07, 51.04], { name: 'Calgary' });
     
+    // Add coordinate strings to properties for easy access on hover
+    point1.properties.coords = `${point1.geometry.coordinates[0]}, ${point1.geometry.coordinates[1]}`;
+    point2.properties.coords = `${point2.geometry.coordinates[0]}, ${point2.geometry.coordinates[1]}`;
+
+    // Create a line connecting the points
+    const line = turf.lineString([point1.geometry.coordinates, point2.geometry.coordinates], { 
+      name: 'Highway 2 Route' 
+    });
+
+    // Calculate distance of the line using Turf.js
+    const distance = turf.length(line, { units: 'kilometers' });
+    line.properties.distance = `${distance.toFixed(2)} km`;
+
+    // Combine into a FeatureCollection
+    const geojsonData = turf.featureCollection([point1, point2, line]);
+
+
+
+
+
     const initialState = {lat: 53.546206, lng: -113.491241, zoom: 13};
 
     map = new maplibregl.Map({
@@ -24,6 +51,56 @@
       center: [initialState.lng,initialState.lat],
       zoom: initialState.zoom
     })
+
+
+    map.on('error', (e) => {
+      console.error('Map error:', e.error);
+    });
+
+    map.on('load', () => {
+      console.log('Map loaded successfully');
+    });
+
+
+
+
+
+    map.on('load', () => {
+      // Add the Turf.js GeoJSON data as a map source
+      map.addSource('route-data', {
+        type: 'geojson',
+        data: geojsonData
+      });
+    
+
+    // Add Line Layer
+    map.addLayer({
+      id: 'route-line',
+      type: 'line',
+      source: 'route-data',
+      filter: ['==', '$type', 'LineString'], // Only style the line
+      paint: {
+        'line-color': '#ff5a5f',
+        'line-width': 5
+      }
+    });
+
+    // Add Points Layer
+    map.addLayer({
+      id: 'route-points',
+      type: 'circle',
+      source: 'route-data',
+      filter:['==', '$type', 'Point'], // Only style the points
+      paint: {
+        'circle-radius': 8,
+        'circle-color': '#007cbf',
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#ffffff'
+      }
+    });
+    })
+    
+
 
   })
 
@@ -35,8 +112,8 @@
   });
 
 
-  //receive props from page.svelte, this is the points object from map plotter!!
-  let { routeids } = $props();
+  
+
 
 
   let selectedRoute = $state('');
@@ -56,7 +133,8 @@
       ? routeids[selectedRoute].map(tripObj => Object.keys(tripObj)[0])
       : []
   );
-
+  //run this when any variable inside it changes
+    //svelte reactive statement
   $effect(()=> {
     console.log('Route changed to:', selectedRoute);
     console.log('Available trips:', availableTrips);
@@ -65,8 +143,9 @@
     }
   });
 
-  //run this when any variable inside it changes
-  //svelte reactive statement
+  
+
+  
 </script>
 
 <div>
@@ -109,12 +188,12 @@
 
 
 <div class="map-wrap">
-  <!-- <a href="https://www.maptiler.com" class="watermark"><img
+  <a href="https://www.maptiler.com" class="watermark"><img
     src="https://api.maptiler.com/resources/logo.svg" alt="MapTiler logo"/></a>
-  <div class="map" bind:this={mapContainer}></div> -->
+  <div class="map" bind:this={mapContainer}></div>
 
 
-  <div><p>{JSON.stringify(routeids, null, 2)}</p></div>
+  <!-- <div><p>{JSON.stringify(routeids, null, 2)}</p></div> -->
 </div>
 
 <style>
@@ -125,20 +204,19 @@
     width: 100%;
     height: calc(100vh - 77px);
     /* calculate height of the screen (viewport height) minus the heading */
- 
+
   }
 
   .map {
     position: absolute;
+    top: 0;
+    bottom: 0;
     width: 100%;
     height: 100%;
   }
 
-  .watermark {
-    position: absolute;
-    left: 10px;
-    bottom: 10px;
-    z-index: 999;
-  }
+
+
+
 </style>
 
