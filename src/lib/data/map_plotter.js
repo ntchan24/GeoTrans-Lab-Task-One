@@ -114,8 +114,9 @@ function lineDistancesSpeed(data){
 
                     const distance = distanceInKmBetweenEarthCoordinates(point1.coords[0], point1.coords[1], point2.coords[0], point2.coords[1])
                     const timebetweenpoints = timeBetweenPoints(point1.time, point2.time)
-                    
-                    const speed = distance / timebetweenpoints
+
+                    // Calculate speed in km/h
+                    let speed = distance / timebetweenpoints
 
                     //add attributes to the points object
                     point1.distancetoNext = distance

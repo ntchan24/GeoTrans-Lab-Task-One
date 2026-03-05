@@ -14,39 +14,91 @@
 
   let { routeids } = $props();//receive props from page.svelte, this is the points object from map plotter!!
 
-  onMount(() => {
-    //handle points here using turf.js 
-    //create turf points for all the points in route id 
-    
-    
+  // Function to get the selected trip data
+  function getSelectedTripData() {
+    //all the return nulls are checks to not return bad data 
+    if (!selectedRoute || !selectedTrip || !routeids) return null;
 
+    const routeData = routeids[selectedRoute];
+    if (!routeData) return null;
 
+    // Find the trip object with the matching trip ID
+    const tripObj = routeData.find(trip => Object.keys(trip)[0] === selectedTrip); //each trip object has one key (logid) 
+    if (!tripObj) return null;
 
+    return tripObj[selectedTrip];
+  }
 
-    //test points 
-    const point1 = turf.point([-113.52, 53.54], { name: 'Edmonton' });
-    const point2 = turf.point([-114.07, 51.04], { name: 'Calgary' });
-    
-    // Add coordinate strings to properties for easy access on hover
-    point1.properties.coords = `${point1.geometry.coordinates[0]}, ${point1.geometry.coordinates[1]}`;
-    point2.properties.coords = `${point2.geometry.coordinates[0]}, ${point2.geometry.coordinates[1]}`;
+  // Function to create GeoJSON from trip data
+  function createGeoJSONFromTrip(tripData) {
+    if (!tripData || tripData.length === 0) {
+      // Return empty FeatureCollection if no data
+      return turf.featureCollection([]);
+    }
 
+    const features = [];
+    const lineCoordinates = [];
 
+    // Create points and collect coordinates for the line
+    tripData.forEach((point, index) => {
+      // convert coordinates [lat, lng] to [lng, lat] for GeoJSON
+      const coords = [point.coords[1], point.coords[0]];
+      lineCoordinates.push(coords);
 
+      
+      const pointFeature = turf.point(coords, {
+        index: index,
+        accuracy: point.accuracy,
+        time: point.time,
+        coords: `${coords[0].toFixed(6)}, ${coords[1].toFixed(6)}`,
+        ...(point.distancetoNext && { distanceToNext: `${point.distancetoNext.toFixed(3)} km` }),
+        ...(point.speedBetweenNext && { speed: `${(point.speedBetweenNext).toFixed(1)} km/h` })
+        //this uses the spread operator , this is an alternative to just assigning the variable 
+      });
 
-    const line = turf.lineString([point1.geometry.coordinates, point2.geometry.coordinates], { 
-      name: 'Highway 2 Route' 
+      features.push(pointFeature);
     });
 
-    // Calculate distance of the line using Turf.js
-    const distance = turf.length(line, { units: 'kilometers' });
-    line.properties.distance = `${distance.toFixed(2)} km`;
+    // Create line if we have at least 2 points
+    if (lineCoordinates.length >= 2) {
+      const lineFeature = turf.lineString(lineCoordinates, {
+        name: `${selectedRoute} - ${selectedTrip}`,
+        totalDistance: `${turf.length(turf.lineString(lineCoordinates), { units: 'kilometers' }).toFixed(2)} km`
+      });
+      features.push(lineFeature);
+    }
 
-    // Combine into a FeatureCollection
-    const geojsonData = turf.featureCollection([point1, point2, line]);
+    return turf.featureCollection(features);
+  }
 
+  // Function to update map data
+  function updateMapData() {
+    if (!map || !map.loaded()) return;
 
+    const tripData = getSelectedTripData();
+    const geojsonData = createGeoJSONFromTrip(tripData);
 
+    // Update the source data
+    const source = map.getSource('route-data');
+    if (source) {
+      source.setData(geojsonData);
+
+      // Fit map bounds to the new data if there are features
+      if (geojsonData.features.length > 0 && tripData && tripData.length > 0) {
+        const bounds = turf.bbox(geojsonData);
+        map.fitBounds(bounds, {
+          padding: 50,
+          duration: 1000
+        });
+      }
+    }
+  }
+
+  onMount(() => {
+
+    
+    // Initialize with empty FeatureCollection
+    const geojsonData = turf.featureCollection([]);
 
 
     const initialState = {lat: 53.546206, lng: -113.491241, zoom: 13};
@@ -65,11 +117,7 @@
 
     map.on('load', () => {
       console.log('Map loaded successfully');
-    });
 
-
-
-    map.on('load', () => {
       // Add the Turf.js GeoJSON data as a map source
       map.addSource('route-data', {
         type: 'geojson',
@@ -113,15 +161,19 @@
       // --- Hover behavior for POINTS ---
       map.on('mouseenter', 'route-points', (e) => {
         map.getCanvas().style.cursor = 'pointer';
-        
+
         // Extract properties populated via Turf.js
-        const { name, coords } = e.features[0].properties;
+        const { index, coords, accuracy, time, distanceToNext, speed } = e.features[0].properties;
         const coordinates = e.features[0].geometry.coordinates.slice();
-        
+
         const htmlContent = `
           <div style="color: black;">
-            <strong>${name}</strong><br>
-            Coordinates: ${coords}
+            <strong>Point ${index}</strong><br>
+            Coordinates: ${coords}<br>
+            Accuracy: ${accuracy?.toFixed(2) || 'N/A'} m<br>
+            Time: ${time ? new Date(time).toLocaleString() : 'N/A'}
+            ${distanceToNext ? `<br>Distance to next: ${distanceToNext}` : ''}
+            ${speed ? `<br>Speed: ${speed}` : ''}
           </div>
         `;
 
@@ -137,14 +189,14 @@
       // We use mousemove so the popup follows the cursor along the line
       map.on('mousemove', 'route-line', (e) => {
         map.getCanvas().style.cursor = 'pointer';
-        
+
         // Extract properties populated via Turf.js
-        const { name, distance } = e.features[0].properties;
-        
+        const { name, totalDistance } = e.features[0].properties;
+
         const htmlContent = `
           <div style="color: black;">
-            <strong>${name}</strong><br>
-            Distance: ${distance}
+            <strong>${name || 'Route'}</strong><br>
+            Total Distance: ${totalDistance || 'N/A'}
           </div>
         `;
 
@@ -156,29 +208,20 @@
         map.getCanvas().style.cursor = '';
         popup.remove();
       });
-      
-      
 
+      // Update map with initially selected trip if any
+      if (selectedTrip) {
+        updateMapData();
+      }
     })
-
-
-
-    
-
-
   })
 
 
 
-  //runs when the website is closed 
+  //runs when the website is closed , destroy component
     onDestroy(() => {
     if (map) map.remove();
   });
-
-
-  
-
-
 
   let selectedRoute = $state('');
   let selectedTrip = $state('');
@@ -207,9 +250,23 @@
     }
   });
 
-  
+  // Update map when trip selection changes
+  $effect(() => {
+    if (selectedTrip) {
+      console.log('Updating map for trip:', selectedTrip);
+      updateMapData();
+    } else if (map && map.loaded()) {
+      // Clear map when no trip is selected
+      const source = map.getSource('route-data');
+      if (source) {
+        source.setData(turf.featureCollection([]));
+      }
+    }
+  });
 
   
+
+
 </script>
 
 <div>
@@ -246,9 +303,9 @@
 
 </div>
 
-<div>
+<!-- <div>
   <p>{selectedRoute},{selectedTrip}</p>
-</div>
+</div> -->
 
 
 <div class="map-wrap">
