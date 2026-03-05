@@ -16,7 +16,11 @@
 
   onMount(() => {
     //handle points here using turf.js 
-    //create turf points for all the points 
+    //create turf points for all the points in route id 
+    
+    
+
+
 
 
     //test points 
@@ -27,7 +31,9 @@
     point1.properties.coords = `${point1.geometry.coordinates[0]}, ${point1.geometry.coordinates[1]}`;
     point2.properties.coords = `${point2.geometry.coordinates[0]}, ${point2.geometry.coordinates[1]}`;
 
-    // Create a line connecting the points
+
+
+
     const line = turf.lineString([point1.geometry.coordinates, point2.geometry.coordinates], { 
       name: 'Highway 2 Route' 
     });
@@ -60,8 +66,6 @@
     map.on('load', () => {
       console.log('Map loaded successfully');
     });
-
-
 
 
 
@@ -98,7 +102,67 @@
         'circle-stroke-color': '#ffffff'
       }
     });
+
+
+    // Create a popup, but don't add it to the map yet.
+      const popup = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false
+      });
+
+      // --- Hover behavior for POINTS ---
+      map.on('mouseenter', 'route-points', (e) => {
+        map.getCanvas().style.cursor = 'pointer';
+        
+        // Extract properties populated via Turf.js
+        const { name, coords } = e.features[0].properties;
+        const coordinates = e.features[0].geometry.coordinates.slice();
+        
+        const htmlContent = `
+          <div style="color: black;">
+            <strong>${name}</strong><br>
+            Coordinates: ${coords}
+          </div>
+        `;
+
+        popup.setLngLat(coordinates).setHTML(htmlContent).addTo(map);
+      });
+
+      map.on('mouseleave', 'route-points', () => {
+        map.getCanvas().style.cursor = '';
+        popup.remove();
+      });
+
+      // --- Hover behavior for the LINE ---
+      // We use mousemove so the popup follows the cursor along the line
+      map.on('mousemove', 'route-line', (e) => {
+        map.getCanvas().style.cursor = 'pointer';
+        
+        // Extract properties populated via Turf.js
+        const { name, distance } = e.features[0].properties;
+        
+        const htmlContent = `
+          <div style="color: black;">
+            <strong>${name}</strong><br>
+            Distance: ${distance}
+          </div>
+        `;
+
+        // e.lngLat is the exact point of the cursor over the line
+        popup.setLngLat(e.lngLat).setHTML(htmlContent).addTo(map);
+      });
+
+      map.on('mouseleave', 'route-line', () => {
+        map.getCanvas().style.cursor = '';
+        popup.remove();
+      });
+      
+      
+
     })
+
+
+
     
 
 
