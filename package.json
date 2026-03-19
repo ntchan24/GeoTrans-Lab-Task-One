@@ -34,6 +34,8 @@
 		"@turf/turf": "^7.3.4",
 		"chart.js": "^4.5.1",
 		"dayjs": "^1.11.19",
+		"geokdbush": "^2.0.1",
+		"kdbush": "^4.0.2",
 		"maplibre-gl": "^5.19.0",
 		"tailwindcss": "^4.2.0"
 	}

@@ -3,12 +3,15 @@
     export let data;
     $: ({ jsonData, logids, timestamp, times_of_day, bins, sensors, distances } = data.base_chart_data || {});
     $: ({ routeids } = data.map_plot_data || {});
+    $: ({ mapMatch } = data.map_snap_data || {});
 
     import TodVisualization from '$lib/components/tod_visualization.svelte';
     import MostDataPiechart from '$lib/components/most_data_piechart.svelte';
     import MostTravelBoxplot from '$lib/components/most_travel_boxplot.svelte';
     import MostTravelBarChart from '$lib/components/most_travel_bar_chart.svelte';
     import MapPlot from '$lib/components/map_plot.svelte';
+    import MapSnap from '$lib/components/map_snap.svelte';
+
     import { TODchartType, piechartType, myOptions } from "./settings.js"
 
     // Dashboard state
@@ -180,6 +183,14 @@
             >
                 Map Plot
             </button></li>
+
+        <li><button
+
+                class:active={activeTab === 'map-snap'}
+                on:click={() => activeTab = 'map-snap'}
+            >
+                Map Snapping Plot
+            </button></li>
       </ul>
     </div>
   </div>
@@ -227,6 +238,15 @@
                     <MapPlot {routeids} />
                     <!-- static street map display -->
                     <!-- <iframe width="500" height="300" allow="geolocation" src="https://api.maptiler.com/maps/streets-v4/?key=UHv14Wh0RtdXjkmopUTK#11.9/53.52029/-113.48545"></iframe> -->
+                {/if}
+            </div>
+
+         {:else if activeTab === 'map-snap'}
+            <div class="chart-container">
+
+                {#if mapMatch && Object.keys(mapMatch).length > 0}
+                    <MapSnap {mapMatch} />
+
                 {/if}
             </div>
         

@@ -23,34 +23,42 @@ export function load_map_data(){
 
 }
 
+export function lineDistancesSpeed(data){
+    const processedRoutes = pointsProcessing(data)
 
-function getRouteIds(data) {
-    const logids = extractLogIds(data);
-    const sensor_suffixes = ["_SE", "_NW", "_CENTRAL", "_RWIS","_RWIS_SW"];
-    const routeids = {SE:[],NW:[],CENTRAL:[],RWIS:[],RWIS_SW:[]}
+    //in between points for every trip, find the distance and speed and store it in between points as an object 
+    //take one point i, check if there is a i+1 point. only do something if there is something 
+    for (const route of Object.keys(processedRoutes)){
+        // console.log(route)
+        for (const trip of processedRoutes[route]){
+            const logId = Object.keys(trip)[0]
+            const points = trip[logId]
+            
+            for (let i = 0; i<points.length;i++){
+                //if a next point exists do this. if not, its the last point and there is no distance or speed to be calculated 
+                if (i+1<points.length){
+                    const point1 = points[i]
+                    const point2 = points[i+1]
 
 
+                    const distance = distanceInKmBetweenEarthCoordinates(point1.coords[0], point1.coords[1], point2.coords[0], point2.coords[1])
+                    const timebetweenpoints = timeBetweenPoints(point1.time, point2.time)
 
-    for (const logid of logids){
-        for (const suffix of sensor_suffixes){
-            //goes through each log id, checks if they end with any of the suffixes
-            if (logid.endsWith(suffix) === true){
-                const suffix_string = suffix.slice(1) //get the string so i can index the json/dict object
+                    // Calculate speed in km/h
+                    let speed = distance / timebetweenpoints
 
-                // console.log(suffix_string,logid)
-                // console.log(typeof suffix_string)
-
-                routeids[suffix_string].push(logid); //store the log id in the object - use bracket notation
+                    //add attributes to the points object
+                    point1.distancetoNext = distance
+                    point1.speedBetweenNext = speed
+                }
             }
         }
     }
-
-
-    return routeids
-
+    // console.log(processedRoutes)
+    return processedRoutes
 }
 
-function pointsProcessing(data){
+export function pointsProcessing(data){
     const routeids = getRouteIds(data) //each trip per route
     const processedRoutes = {}
 
@@ -92,48 +100,36 @@ function pointsProcessing(data){
     return processedRoutes
 }
 
-function lineDistancesSpeed(data){
-    const processedRoutes = pointsProcessing(data)
-
-    //in between points for every trip, find the distance and speed and store it in between points as an object 
-    //take one point i, check if there is a i+1 point. only do something if there is something 
-    for (const route of Object.keys(processedRoutes)){
-        // console.log(route)
-        for (const trip of processedRoutes[route]){
-            const logId = Object.keys(trip)[0]
+export function getRouteIds(data) {
+    const logids = extractLogIds(data);
+    const sensor_suffixes = ["_SE", "_NW", "_CENTRAL", "_RWIS","_RWIS_SW","_SW"];
+    const routeids = {SE:[],NW:[],CENTRAL:[],RWIS:[],RWIS_SW:[],SW:[]}
 
 
-            const points = trip[logId]
-            
-            for (let i = 0; i<points.length;i++){
-                //if a next point exists do this. if not, its the last point and there is no distance or speed to be calculated 
-                if (i+1<points.length){
-                    const point1 = points[i]
-                    const point2 = points[i+1]
 
+    for (const logid of logids){
+        for (const suffix of sensor_suffixes){
+            //goes through each log id, checks if they end with any of the suffixes
+            if (logid.endsWith(suffix) === true){
+                const suffix_string = suffix.slice(1) //get the string so i can index the json/dict object
 
-                    const distance = distanceInKmBetweenEarthCoordinates(point1.coords[0], point1.coords[1], point2.coords[0], point2.coords[1])
-                    const timebetweenpoints = timeBetweenPoints(point1.time, point2.time)
+                // console.log(suffix_string,logid)
+                // console.log(typeof suffix_string)
 
-                    // Calculate speed in km/h
-                    let speed = distance / timebetweenpoints
-
-                    //add attributes to the points object
-                    point1.distancetoNext = distance
-                    point1.speedBetweenNext = speed
-
-                }
+                routeids[suffix_string].push(logid); //store the log id in the object - use bracket notation
             }
-
         }
     }
 
-    // console.log(processedRoutes)
-    return processedRoutes
+
+    return routeids
 
 }
 
-function timeBetweenPoints(point1time,point2time){
+
+
+
+export function timeBetweenPoints(point1time,point2time){
     //handle day rollover too 
     const time1 = dayjs(point1time)
     const time2 = dayjs(point2time)
