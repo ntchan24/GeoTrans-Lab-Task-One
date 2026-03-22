@@ -40,14 +40,14 @@
     const lineCoordinates = [];
 
     // Create points and collect coordinates for the line
-    tripData.forEach((point, index) => {
+    tripData.forEach((point) => {
       // convert coordinates [lat, lng] to [lng, lat] for GeoJSON
       const coords = [point.coords[1], point.coords[0]];
       lineCoordinates.push(coords);
 
       
       const pointFeature = turf.point(coords, {
-        index: index,
+        index: point.index,
         accuracy: point.accuracy,
         time: point.time,
         coords: `${coords[0].toFixed(6)}, ${coords[1].toFixed(6)}`,

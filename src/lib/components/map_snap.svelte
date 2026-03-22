@@ -312,12 +312,12 @@
 
 
 <div class="map-wrap">
-  <!-- <a href="https://www.maptiler.com" class="watermark"><img
+  <a href="https://www.maptiler.com" class="watermark"><img
     src="https://api.maptiler.com/resources/logo.svg" alt="MapTiler logo"/></a>
-  <div class="map" bind:this={mapContainer}></div> -->
+  <div class="map" bind:this={mapContainer}></div>
 
 
-  <div><p>{JSON.stringify(mapMatch, null, 2)}</p></div>
+  <!-- <div><p>{JSON.stringify(mapMatch, null, 2)}</p></div> -->
 </div>
 
 <style>

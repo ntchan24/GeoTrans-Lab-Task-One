@@ -1,10 +1,15 @@
 //here is where we handle the points snapping to road ground truth 
+
+/*
+general flow of the program:
+*/
  
-import data from '../coe-snic-default-rtdb-logs-export.json'
-import * as Plotter from './map_plotter';
+import data from '../coe-snic-default-rtdb-logs-export.json' with { type: "json" }
+import * as Plotter from './map_plotter.js';
 import { normalizeEntries, distanceInKmBetweenEarthCoordinates, extractLogIds } from './processing_script.js'
 import KDBush from 'kdbush';
 import * as geokdbush from 'geokdbush';
+import * as turf from '@turf/turf';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -81,15 +86,7 @@ async function isCachedDataValid(filename = ROAD_DATA_FILE, maxAgeHours = 24 * 7
     }
 }
 
-export async function load_map_snap_data(){
-    // return {routeids : Plotter.lineDistancesSpeed(data)}
 
-    // MapSnapped is now async, so we need to await it
-    const snappedPoints = await MapSnapped(data);
-
-    // console.log(snappedPoints)
-    return {mapMatch : snappedPoints}
-}
 
 
 //fetch the road map data from overpass api 
@@ -99,11 +96,15 @@ async function fetchOverpass(bbox=[53.50, -113.60, 53.61, -113.47], retries = 3)
     // Expanded bbox to cover all your GPS points
     // Original was too small: [53.52, -113.53, 53.55, -113.49]
 
-    // Filter for main road types to reduce data size
+    // Expanded filter to include parking areas and minor roads
+    // Added: living_street, track, pedestrian (for plazas), parking_aisle (for parking lots)
+    // Also added footway and cycleway where vehicles might travel
     const query = `
     [out:json][timeout:90];
     (
-        way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|service)$"](${bbox.join(",")});
+        way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|service|living_street|track|pedestrian|parking_aisle|footway|cycleway)$"](${bbox.join(",")});
+        way["amenity"="parking"](${bbox.join(",")});
+        way["service"~"^(parking_aisle|driveway)$"](${bbox.join(",")});
     );
     out geom;
     `;
@@ -244,6 +245,7 @@ async function fetchAllRoads(bbox) {
 
 const cache = new Map();
 //Calculate bounding box from GPS points
+//dynamic bounding box 
 function calculateBoundingBox(data) {
     let minLat = Infinity, maxLat = -Infinity;
     let minLon = Infinity, maxLon = -Infinity;
@@ -353,61 +355,72 @@ async function getRoadMapData(key = 0, bbox = null ){
 
 
 function returnPoints(data,tolerance = 10){
-    //identifies the points with gps accuracy more than 5 m 
-    const routeids = Plotter.getRouteIds(data)
+    //identifies the points with gps accuracy more than the tolerance
+    console.log(`=== FINDING BAD POINTS (accuracy > ${tolerance}m) ===`);
+    // Get the processed data with proper index and structure
+    const processedData = Plotter.lineDistancesSpeed(data)
     const processedRoutes = {}
+    let totalPointsChecked = 0;
+    let totalBadPoints = 0;
 
-    for (const route of Object.keys(routeids)){
+    for (const route of Object.keys(processedData)){
         processedRoutes[route] = []
 
-        // Iterate through each log ID in this route
-        for (const logid of routeids[route]){
-            if (data[logid] && data[logid]["entries"]){
-                const raw_entries = data[logid]["entries"]
-                const entries = normalizeEntries(raw_entries)
-                
+        // Iterate through each trip in this route
+        for (const tripData of processedData[route]){
+            const logid = Object.keys(tripData)[0]
+            const points = tripData[logid]
 
-                const tripPoints = []
-                for (const entry of entries){
-                    if (entry && entry.gps){ //check for nulls
+            const tripPoints = []
+            for (const point of points){
+                // Check if point has required data
+                if (point && point.accuracy !== undefined && point.coords){
+                    totalPointsChecked++;
 
-                        const gps_coords = entry.gps;
-                        
-                        //store the point only if its deemed an inaccurate point 
-                        if (gps_coords.accuracy > tolerance){
+                    //store the point only if its deemed an inaccurate point
+                    if (point.accuracy > tolerance){
+                        // Create turf point from coords [lat, lon] -> [lon, lat]
+                        const turfPoint = turf.point([point.coords[1], point.coords[0]])
 
-                            const pointObject = {
-                            accuracy: gps_coords.accuracy,
-                            coords:[gps_coords.latitude,gps_coords.longitude],
-                            }
-
-                            tripPoints.push(pointObject)
+                        const pointObject = {
+                            index: point.index,
+                            accuracy: point.accuracy,
+                            coords: point.coords, // Already in [lat, lon] format
+                            turfpoint: turfPoint
                         }
-                        
+
+                        tripPoints.push(pointObject)
+                        totalBadPoints++;
                     }
                 }
+            }
 
-                // Store the trip w its points  with its log ID
-                if (tripPoints.length > 0){
-                    processedRoutes[route].push({
-                        [logid]:tripPoints
-                    })
-                }
+            // Store the trip with its points with its log ID
+            if (tripPoints.length > 0){
+                processedRoutes[route].push({
+                    [logid]:tripPoints
+                })
             }
         }
     }
-    // console.log(processedRoutes)
+    console.log(`Total points checked: ${totalPointsChecked}`);
+    console.log(`Bad points found (accuracy > ${tolerance}m): ${totalBadPoints}`);
+    console.log(`Percentage of bad points: ${totalPointsChecked > 0 ? ((totalBadPoints / totalPointsChecked) * 100).toFixed(1) : 0}%`);
+
     return processedRoutes
 }
 
 
 function buildSpatialIndex(elements){
-    
-    //flatten all geometry points into one array 
+
+    //flatten all geometry points into one array
     const points = []
 
     elements.forEach((way,wayIndex)=>{
-        if (!way.geometry) return undefined //check for null entries 
+        if (!way.geometry) {
+            console.log(`Warning: Way ${way.id} has no geometry`);
+            return; // Skip ways without geometry
+        }
 
         way.geometry.forEach((coord,coordIndex) =>{
             points.push({
@@ -419,8 +432,10 @@ function buildSpatialIndex(elements){
         })
     })
 
+    console.log(`Building spatial index with ${points.length} points from ${elements.length} ways`);
+
     //we need to build a spatial index
-    //data structure that knows where things are sptially, relative to each other 
+    //data structure that knows where things are spatially, relative to each other
     const index = new KDBush(points.length)
     for (const pt of points){
         index.add(pt.lon,pt.lat)
@@ -433,18 +448,38 @@ function buildSpatialIndex(elements){
 }
     
 
-function findCloseRoads(gpsPoint, index, points, elements, maxPointsReturned, maxDistKM = 0.05){
+function findCloseRoads(gpsPoint, index, points, elements, maxPointsReturned, maxDistKM = 0.05, useProgressiveSearch = true){
     //geokdbush.around returns the indices into the kdbush index of points within maxdistkm of the gps point
 
     //50 meter radius for snapping
-
-    const nearbyIndices = geokdbush.around(
+    let nearbyIndices = geokdbush.around(
         index,
         gpsPoint.lon,
         gpsPoint.lat,
         maxPointsReturned,
         maxDistKM
     )
+
+    // Progressive search: if no roads found and enabled, try larger radii
+    if (useProgressiveSearch && nearbyIndices.length === 0) {
+        const searchRadii = [0.1, 0.2, 0.3, 0.5]; // 100m, 200m, 300m, 500m
+        for (const radius of searchRadii) {
+            if (radius <= maxDistKM) continue; // Skip if we already searched this radius
+
+            nearbyIndices = geokdbush.around(
+                index,
+                gpsPoint.lon,
+                gpsPoint.lat,
+                Math.min(maxPointsReturned * 2, 200), // Increase max points for larger radius
+                radius
+            );
+
+            if (nearbyIndices.length > 0) {
+                console.log(`  Found roads at expanded radius: ${radius * 1000}m`);
+                break;
+            }
+        }
+    }
 
     //map each index back to the point object then to its parent way
 
@@ -468,6 +503,11 @@ function findCloseRoads(gpsPoint, index, points, elements, maxPointsReturned, ma
                 pt.lon
             );
 
+            //turn the geometry object into real turf.linestring
+
+            const line = turf.lineString(road.geometry.map(pt => [pt.lon, pt.lat]));
+
+
             // Create road info object with ID and metadata
             nearbyRoads.push({
                 id: road.id,
@@ -476,21 +516,24 @@ function findCloseRoads(gpsPoint, index, points, elements, maxPointsReturned, ma
                 name: road.tags?.name || 'Unnamed',
                 highway: road.tags?.highway || 'unknown',
                 distance: distance * 1000, // Convert to meters
-                wayIndex: pt.wayIndex
+                wayIndex: pt.wayIndex,
+                geometry : road.geometry,
+                lineString : line
             });
         }
     }
+
+    // Sort by distance (closest first)
+    nearbyRoads.sort((a, b) => a.distance - b.distance);
 
     return nearbyRoads;
 
 }
 
-function findNearestPointOnLine(){
-
-}
 
 
-async function MapSnapped(){
+
+async function MatchRoadsBadpoints(tolerance = 10){
     //main function
     // Calculate bbox from actual GPS data
     const bbox = calculateBoundingBox(data);
@@ -506,8 +549,9 @@ async function MapSnapped(){
     }
 
     const {index,points} = buildSpatialIndex(roadMapData.elements)
+    console.log(`Spatial index built with ${points.length} road points`);
 
-    const badpoints = returnPoints(data)
+    const badpoints = returnPoints(data, tolerance)
 
     // Process each route and its bad points
     const snappedResults = {}
@@ -555,7 +599,8 @@ async function MapSnapped(){
                     points,
                     roadMapData.elements,
                     maxPointsToReturn,  // Dynamic based on search radius
-                    searchRadiusKm
+                    searchRadiusKm,
+                    true  // Enable progressive search for bad points
                 )
 
                 if (nearbyRoads.length > 0) {
@@ -576,82 +621,543 @@ async function MapSnapped(){
             }
         }
     }
-    // console.log(`Map snapping summary: ${pointsWithRoads}/${totalPointsProcessed} points matched to roads (${(pointsWithRoads/totalPointsProcessed*100).toFixed(1)}%)`);
 
-    // // Analyze unmatched points
-    // let unmatchedByAccuracy = {
-    //     'high': { range: '< 20m', count: 0, points: [] },
-    //     'moderate': { range: '20-50m', count: 0, points: [] },
-    //     'poor': { range: '50-100m', count: 0, points: [] },
-    //     'very_poor': { range: '> 100m', count: 0, points: [] }
-    // };
-
-    // for (const route of Object.keys(snappedResults)) {
-    //     for (const tripData of snappedResults[route]) {
-    //         const logId = Object.keys(tripData)[0];
-    //         for (const point of tripData[logId]) {
-    //             if (point.nearbyRoadsCount === 0) {
-    //                 const accuracy = point.original.accuracy || 20;
-    //                 const sample = {
-    //                     coords: point.original.coords,
-    //                     accuracy: accuracy
-    //                 };
-
-    //                 if (accuracy < 20) {
-    //                     unmatchedByAccuracy.high.count++;
-    //                     if (unmatchedByAccuracy.high.points.length < 2) {
-    //                         unmatchedByAccuracy.high.points.push(sample);
-    //                     }
-    //                 } else if (accuracy < 50) {
-    //                     unmatchedByAccuracy.moderate.count++;
-    //                     if (unmatchedByAccuracy.moderate.points.length < 2) {
-    //                         unmatchedByAccuracy.moderate.points.push(sample);
-    //                     }
-    //                 } else if (accuracy < 100) {
-    //                     unmatchedByAccuracy.poor.count++;
-    //                     if (unmatchedByAccuracy.poor.points.length < 2) {
-    //                         unmatchedByAccuracy.poor.points.push(sample);
-    //                     }
-    //                 } else {
-    //                     unmatchedByAccuracy.very_poor.count++;
-    //                     if (unmatchedByAccuracy.very_poor.points.length < 2) {
-    //                         unmatchedByAccuracy.very_poor.points.push(sample);
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-
-    // console.log('\nUnmatched points analysis by GPS accuracy:');
-    // for (const [key, data] of Object.entries(unmatchedByAccuracy)) {
-    //     if (data.count > 0) {
-    //         console.log(`  ${data.range}: ${data.count} unmatched`);
-    //         for (const point of data.points) {
-    //             console.log(`    Example: [${point.coords[0].toFixed(4)}, ${point.coords[1].toFixed(4)}] accuracy: ${point.accuracy.toFixed(1)}m`);
-    //         }
-    //     }
-    // }
-
-    // // Log a sample of matched roads
-    // if (pointsWithRoads > 0) {
-    //     console.log("Sample of matched roads:");
-    //     let sampleCount = 0;
-    //     for (const route of Object.keys(snappedResults)) {
-    //         for (const tripData of snappedResults[route]) {
-    //             const logId = Object.keys(tripData)[0];
-    //             for (const point of tripData[logId]) {
-    //                 if (point.nearbyRoadsCount > 0 && sampleCount < 3) {
-    //                     console.log(`  Point at [${point.original.coords[0].toFixed(4)}, ${point.original.coords[1].toFixed(4)}] matched ${point.nearbyRoadsCount} road(s):`);
-    //                     for (const road of point.nearbyRoads.slice(0, 2)) {
-    //                         console.log(`    - ${road.name} (${road.highway}), ID: ${road.id}, Distance: ${road.distance.toFixed(1)}m`);
-    //                     }
-    //                     sampleCount++;
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
     console.log(JSON.stringify(snappedResults, null, 2))
     return snappedResults;
+    //this returns the closest roads for every inaccurate point 
+}
+
+
+
+
+async function findHeadAndTail(badpoints, tolerance = 10){
+    //head and tail nodes are the last accurate entries to either side, ie before and after the inaccurate point
+    //for each inaccurate point i need to find the indexes of the head and tail
+    //we need to find out which roads the head and tail are on
+    const originalArray = Plotter.lineDistancesSpeed(data)
+
+    // const badpoints = returnPoints(data)
+    //this object has the index of the bad points, so we can cross reference them in the originalArray
+
+    // Fetch road data first
+    const bbox = calculateBoundingBox(data);
+    const roadMapData = await getRoadMapData(0, bbox);
+
+    if (!roadMapData.elements || roadMapData.elements.length === 0) {
+        console.error("No road data available for head/tail matching");
+        return badpoints;
+    }
+
+    //for loop to go through each route, then each trip
+    const {index: spatialIndex, points: spatialPoints} = buildSpatialIndex(roadMapData.elements)
+
+    for (const route of Object.keys(badpoints)){
+
+        for (const trip of badpoints[route]){
+            const logId = Object.keys(trip)[0]
+            const points = trip[logId]
+            
+            //for all the points 
+            for (let i = 0; i<points.length;i++){
+                
+                
+                const badpoint = points[i]
+
+                //find their originals in the original Array
+
+                //Find the matching trip in originalArray
+                let originalPoints = null;
+                for (const originalTrip of originalArray[route]) {
+                    if (originalTrip[logId]) {
+                        originalPoints = originalTrip[logId];
+                        break;
+                    }
+                }
+
+                for (const originalPoint of originalPoints){
+                    if (badpoint.index ===originalPoint.index){
+                        //we know we found the point in the original array 
+                        //iterate on both sides until we find the head and tail 
+                        
+                        const point_position = originalPoints.indexOf(originalPoint)
+
+                        //find head (searching backwards)
+                        let offset_point_head = null;
+                        let head_offset = -1; // Start at -1 to go backwards
+                        let best_head_candidate = null;
+                        let best_head_accuracy = Infinity;
+
+                        // Search up to 10 points back for the best head
+                        while ((point_position + head_offset) >= 0 && head_offset >= -10) {
+                            let candidate = originalPoints[point_position + head_offset];
+                            if (candidate && candidate.accuracy !== undefined) {
+                                // If we find a good point (accuracy < tolerance), use it immediately
+                                if (candidate.accuracy < tolerance) {
+                                    offset_point_head = candidate;
+                                    break;
+                                }
+                                // Otherwise, keep track of the best candidate so far
+                                if (candidate.accuracy < best_head_accuracy) {
+                                    best_head_candidate = candidate;
+                                    best_head_accuracy = candidate.accuracy;
+                                }
+                            }
+                            head_offset--; // Keep going backwards
+                        }
+
+                        // If no good point found, use the best available (if accuracy < 20m)
+                        if (!offset_point_head && best_head_candidate && best_head_accuracy < 20) {
+                            offset_point_head = best_head_candidate;
+                        }
+
+                        //find tail (searching forwards)
+                        let offset_point_tail = null;
+                        let tail_offset = 1; // Start at +1 to go forwards
+                        let best_tail_candidate = null;
+                        let best_tail_accuracy = Infinity;
+
+                        // Search up to 10 points forward for the best tail
+                        while ((point_position + tail_offset) < originalPoints.length && tail_offset <= 10) {
+                            let candidate = originalPoints[point_position + tail_offset];
+                            if (candidate && candidate.accuracy !== undefined) {
+                                // If we find a good point (accuracy < tolerance), use it immediately
+                                if (candidate.accuracy < tolerance) {
+                                    offset_point_tail = candidate;
+                                    break;
+                                }
+                                // Otherwise, keep track of the best candidate so far
+                                if (candidate.accuracy < best_tail_accuracy) {
+                                    best_tail_candidate = candidate;
+                                    best_tail_accuracy = candidate.accuracy;
+                                }
+                            }
+                            tail_offset++; // Keep going forwards
+                        }
+
+                        // If no good point found, use the best available (if accuracy < 20m)
+                        if (!offset_point_tail && best_tail_candidate && best_tail_accuracy < 20) {
+                            offset_point_tail = best_tail_candidate;
+                        }
+                        
+                        
+                        //we need to find out where the head and tail points are (roads)
+
+                        // Check if we found valid head and tail points
+                        if (!offset_point_head || !offset_point_tail) {
+                            console.log(`Could not find head or tail for bad point at index ${badpoint.index}`);
+                            badpoint.headStreets = [];
+                            badpoint.tailStreets = [];
+                            continue; // Skip to next bad point
+                        }
+
+                        // offset_point_head roads
+                        const gpsPoint_head = {
+                            lon: offset_point_head.coords[1],  // longitude
+                            lat: offset_point_head.coords[0]   // latitude
+                        }
+
+                        const gpsAccuracyHead = offset_point_head.accuracy || 20; // Default to 20m if not specified
+                        let searchRadiusKmHead;
+                        let maxPointsToReturnHead;
+
+                        if (gpsAccuracyHead < 20) {
+                            searchRadiusKmHead = 0.05; // 50m for accurate GPS
+                            maxPointsToReturnHead = 30; // Enough for complex intersections
+                        } else if (gpsAccuracyHead < 50) {
+                            searchRadiusKmHead = 0.1;  // 100m for moderate accuracy
+                            maxPointsToReturnHead = 50; // More points for larger radius
+                        } else {
+                            // For poor accuracy, use 1.5x the accuracy, max 200m
+                            searchRadiusKmHead = Math.min(0.2, gpsAccuracyHead * 1.5 / 1000);
+                            maxPointsToReturnHead = 100; // Many points for largest radius
+                        }
+
+                        const nearbyRoads_head = findCloseRoads(
+                            gpsPoint_head,
+                            spatialIndex,
+                            spatialPoints,
+                            roadMapData.elements,
+                            maxPointsToReturnHead,  // Dynamic based on search radius
+                            searchRadiusKmHead,
+                            true  // Enable progressive search
+                        )
+                        // offset_point_tail roads
+
+                        const gpsPoint_tail = {
+                            lon: offset_point_tail.coords[1],  // longitude
+                            lat: offset_point_tail.coords[0]   // latitude
+                        }
+
+                        const gpsAccuracyTail = offset_point_tail.accuracy || 20; // Default to 20m if not specified
+                        let searchRadiusKmTail;
+                        let maxPointsToReturnTail;
+
+                        if (gpsAccuracyTail < 20) {
+                            searchRadiusKmTail = 0.05; // 50m for accurate GPS
+                            maxPointsToReturnTail = 30; // Enough for complex intersections
+                        } else if (gpsAccuracyTail < 50) {
+                            searchRadiusKmTail = 0.1;  // 100m for moderate accuracy
+                            maxPointsToReturnTail = 50; // More points for larger radius
+                        } else {
+                            // For poor accuracy, use 1.5x the accuracy, max 200m
+                            searchRadiusKmTail = Math.min(0.2, gpsAccuracyTail * 1.5 / 1000);
+                            maxPointsToReturnTail = 100; // Many points for largest radius
+                        }
+
+                        const nearbyRoads_tail = findCloseRoads(
+                            gpsPoint_tail,
+                            spatialIndex,
+                            spatialPoints,
+                            roadMapData.elements,
+                            maxPointsToReturnTail,  // Dynamic based on search radius
+                            searchRadiusKmTail,
+                            true  // Enable progressive search
+                        )
+
+                        //then we need to write it back to the array of bad points 
+                        //ie head location: x street, tail location : y avenue 
+                        badpoint.headStreets = nearbyRoads_head
+                        badpoint.tailStreets = nearbyRoads_tail
+
+                        //we also need the coords of the head and tail as turf points
+                        badpoint.headNode = turf.point([offset_point_head.coords[1], offset_point_head.coords[0]])  // [lon, lat]
+                        badpoint.tailNode = turf.point([offset_point_tail.coords[1], offset_point_tail.coords[0]])  // [lon, lat]
+                    }
+                } 
+            }
+        }
+    }
+
+    return badpoints
+}
+
+
+async function snapToRoad(distanceWeight = 0.50, headingWeight = 0.25, neighborWeight=0.25, exponentialDecayFactor = 15, tolerance = 10){
+    console.log('=== SNAP TO ROAD STARTING ===');
+
+    //get the nearest road for every bad point
+    //*this is how we know where to snap to
+    const badpointsmatchedroads = await MatchRoadsBadpoints(tolerance);
+
+    const headandtailincluded = await findHeadAndTail(badpointsmatchedroads, tolerance)
+
+    // Count total bad points
+    let totalBadPoints = 0;
+    for (const route of Object.keys(headandtailincluded)) {
+        for (const tripData of headandtailincluded[route]) {
+            const logid = Object.keys(tripData)[0];
+            totalBadPoints += tripData[logid].length;
+        }
+    }
+    console.log(`Total bad points found: ${totalBadPoints}`);
+    console.log(`Routes to process: ${Object.keys(headandtailincluded).length}`);
+
+    const originalArray = Plotter.lineDistancesSpeed(data)
+
+    const routeids = Plotter.getRouteIds(data)
+
+    // Track statistics
+    let pointsModified = 0;
+    let pointsSkippedNoRoads = 0;
+    let pointsSkippedNoScores = 0;
+    let totalDistanceMoved = 0;
+    let pointsInterpolated = 0;
+    let pointsExpandedSearch = 0;
+    const failedPoints = []; // Track failed points for analysis
+
+    // Iterate through the bad points structure
+    for (const route of Object.keys(headandtailincluded)){
+        for (const tripData of headandtailincluded[route]){
+            const logid = Object.keys(tripData)[0]
+            const entries = tripData[logid]
+
+            for (const entry of entries){
+                //get the head and tail roads
+                //* we have to make a big assumption here:
+                // since these are accurate points, we can take the closest road as the road the point is on
+                //at this point we have the array of bad points plus the head and tail roads
+                //all sorted by distance, closest first
+                //we need to get the geojson line segments for the right roads from each road object
+
+                //should roads from the head, tail and close to the badpoint all be candidates?
+
+                // Handle points with no nearby roads
+                if (!entry.nearbyRoads || entry.nearbyRoads.length === 0) {
+                    // console.log(`No nearby roads found for bad point at index ${entry.original.index}`);
+
+                    // Fallback: Try interpolation between head and tail if available
+                    if (entry.headNode && entry.tailNode) {
+                        console.log(`  Using interpolation fallback between head and tail`);
+
+                        // Calculate interpolated position (simple midpoint for now)
+                        const headCoords = entry.headNode.geometry.coordinates;
+                        const tailCoords = entry.tailNode.geometry.coordinates;
+                        const interpolatedLon = (headCoords[0] + tailCoords[0]) / 2;
+                        const interpolatedLat = (headCoords[1] + tailCoords[1]) / 2;
+
+                        // Find the matching point in originalArray and update
+                        for (const originalTrip of originalArray[route]) {
+                            if (originalTrip[logid]) {
+                                const originalPoints = originalTrip[logid];
+                                for (let i = 0; i < originalPoints.length; i++) {
+                                    if (originalPoints[i].index === entry.original.index) {
+                                        const originalLat = originalPoints[i].coords[0];
+                                        const originalLon = originalPoints[i].coords[1];
+
+                                        // Calculate distance moved
+                                        const distanceMoved = distanceInKmBetweenEarthCoordinates(
+                                            originalLat, originalLon, interpolatedLat, interpolatedLon
+                                        ) * 1000; // Convert to meters
+
+                                        console.log(`  INTERPOLATION: Point ${entry.original.index}`);
+                                        console.log(`    BEFORE: [${originalLat.toFixed(6)}, ${originalLon.toFixed(6)}]`);
+                                        console.log(`    AFTER:  [${interpolatedLat.toFixed(6)}, ${interpolatedLon.toFixed(6)}]`);
+                                        console.log(`    Distance moved: ${distanceMoved.toFixed(2)} meters`);
+
+                                        // Update coordinates
+                                        originalPoints[i].coords[0] = interpolatedLat;
+                                        originalPoints[i].coords[1] = interpolatedLon;
+
+                                        pointsModified++;
+                                        pointsInterpolated++;
+                                        totalDistanceMoved += distanceMoved;
+                                        break;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    } else {
+                        console.log(`  No head/tail available for interpolation, skipping`);
+                        pointsSkippedNoRoads++;
+
+                        // Track failed point for analysis
+                        failedPoints.push({
+                            index: entry.original.index,
+                            coords: entry.original.coords,
+                            accuracy: entry.original.accuracy,
+                            reason: 'no_roads_no_interpolation'
+                        });
+                    }
+                    continue;
+                }
+
+                //create a composite scoring system for all the candidates
+                let roadScores = {}
+
+                for (let roadIndex = 0; roadIndex < entry.nearbyRoads.length; roadIndex++){
+                    const road = entry.nearbyRoads[roadIndex]
+                    //distance score
+                    const snapPoint = turf.nearestPointOnLine(road.lineString,entry.original.turfpoint, { units: 'meters' }) //this is the point we snap to later
+                    const distMeters = snapPoint.properties.dist
+                    //normalize the distance score:
+                    //use exponential decay
+                    const distanceScore = Math.exp(-distMeters / exponentialDecayFactor)
+
+                    //heading score
+                    let headingScore = 0.5; // Default neutral score if we can't calculate heading
+
+                    // Check if we have both head and tail nodes to calculate vehicle heading
+                    if (entry.headNode && entry.tailNode) {
+                        //get the head and tail points - this is the vehicle heading
+                        const vehicleHeading = turf.bearing(entry.headNode,entry.tailNode)
+                        //road bearing
+                        // snapped.properties.index gives which segment of the line
+                        // the snap point fell on — the segment between node[i] and node[i+1]
+                        const segIndex = snapPoint.properties.index
+                        const lineCoords = road.geometry //array of [lon,lat] pairs
+
+                        const nodeA = turf.point([lineCoords[segIndex].lon, lineCoords[segIndex].lat])
+                        const nodeB = turf.point([lineCoords[segIndex+1].lon, lineCoords[segIndex+1].lat])
+
+                        const roadBearing = turf.bearing(nodeA, nodeB)
+
+                        // Check both directions of the road
+                        const diff = Math.min(
+                            angleDifference(vehicleHeading, roadBearing),
+                            angleDifference(vehicleHeading, roadBearing + 180)
+                        );
+                        // diff is now 0-90: 0 = perfect match, 90 = perpendicular
+
+                        headingScore = 1 - (diff / 90);
+                        // 0° difference  → 1.0 (road perfectly aligned with travel direction)
+                        // 45° difference → 0.5
+                        // 90° difference → 0.0 (road is perpendicular to travel — wrong road)
+                    } else {
+                        // console.log(`No head/tail nodes for bad point at index ${entry.original.index}, using default heading score`);
+                    }
+
+                    //neighbor score
+
+                    // Check if head and tail streets exist before accessing them
+                    if (!entry.headStreets || entry.headStreets.length === 0 ||
+                        !entry.tailStreets || entry.tailStreets.length === 0) {
+                        // Skip neighbor scoring if we don't have head/tail street data
+                        const neighborScore = 0.0;
+                        const finalScore = (distanceWeight*distanceScore) + (headingWeight*headingScore) + (neighborWeight*neighborScore);
+                        roadScores[roadIndex] = finalScore;
+                        continue;
+                    }
+
+                    //the roads are sorted, closests distance first, so take the first road and snap to that one
+                    const headClosestRoad = entry.headStreets[0].lineString
+                    const tailClosestRoad = entry.tailStreets[0].lineString
+
+                    // const headnode = entry.headNode
+                    // const tailnode = entry.tailNode
+                    
+                    // const headSnapPoint = turf.nearestPointOnLine(headClosestRoad,headnode, { units: 'meters' })
+                    // const tailSnapPoint = turf.nearestPointOnLine(tailClosestRoad, tailnode, { units: 'meters' })
+                    // //rewrite the coordinates to snap the head and tail nodes
+                    // entry.headNode = headSnapPoint
+                    // entry.tailNode = tailSnapPoint
+
+                    //check if each candidate road matches the neighbors 
+                    const candidateRoad = road.id
+                    const candidateRoadMatchHead = (candidateRoad === headClosestRoad.id)
+                    const candidateRoadMatchTail = (candidateRoad === tailClosestRoad.id)
+
+                    let neighborScore
+
+                    if (candidateRoadMatchHead && candidateRoadMatchTail){
+                        neighborScore = 1.0
+                    } else if (candidateRoadMatchHead || candidateRoadMatchTail){
+                        neighborScore = 0.5
+                    } else {
+                        neighborScore =  0.0
+                    }
+
+                    //compute the final score
+                    const finalScore = (distanceWeight*distanceScore) + (headingWeight*headingScore) + (neighborWeight*neighborScore)
+                    roadScores[roadIndex] = finalScore
+
+
+                }
+
+                //find the highest road score
+                //thats the one we need to snap to
+
+                // Check if we have any road scores (shouldn't happen after our checks, but safety first)
+                const roadScoreEntries = Object.entries(roadScores);
+                if (roadScoreEntries.length === 0) {
+                    // console.log(`No road scores calculated for bad point at index ${entry.original.index}, skipping`);
+                    pointsSkippedNoScores++;
+                    continue;
+                }
+
+                const [winningIndex, winningScore] = roadScoreEntries.reduce((max, entry) =>
+                    entry[1] > max[1] ? entry : max
+                );
+
+                const winningRoad = entry.nearbyRoads[parseInt(winningIndex)] //the chosen road object
+                const winningSnapPoint = turf.nearestPointOnLine(winningRoad.lineString, entry.original.turfpoint, { units: 'meters' })
+
+                const winningSnapPointCoordinates = winningSnapPoint.geometry.coordinates
+
+                //need to rewrite the coordinates for the badpoint that we're targeting with our new coordinates
+                //need to change the originalarray
+
+                // Find the matching point in originalArray and update its coordinates
+                for (const originalTrip of originalArray[route]) {
+                    if (originalTrip[logid]) {
+                        const originalPoints = originalTrip[logid];
+
+                        // Find the point by index
+                        for (let i = 0; i < originalPoints.length; i++) {
+                            if (originalPoints[i].index === entry.original.index) {
+                                // Store original coordinates for comparison
+                                const originalLat = originalPoints[i].coords[0];
+                                const originalLon = originalPoints[i].coords[1];
+
+                                // Update the coordinates with the snapped location
+                                // winningSnapPointCoordinates is [longitude, latitude]
+                                const newLat = winningSnapPointCoordinates[1];
+                                const newLon = winningSnapPointCoordinates[0];
+
+                                // Calculate distance moved
+                                const distanceMoved = distanceInKmBetweenEarthCoordinates(
+                                    originalLat, originalLon, newLat, newLon
+                                ) * 1000; // Convert to meters
+
+                                // Validate the snap distance (should not be more than 200m for safety)
+                                const maxSnapDistance = 200; // meters
+                                if (distanceMoved > maxSnapDistance) {
+                                    console.log(`WARNING: Point ${entry.original.index} would move ${distanceMoved.toFixed(2)}m (> ${maxSnapDistance}m limit), skipping snap`);
+                                    break;
+                                }
+
+                                console.log(`SNAPPING Point ${entry.original.index}:`);
+                                console.log(`  BEFORE: [${originalLat.toFixed(6)}, ${originalLon.toFixed(6)}]`);
+                                console.log(`  AFTER:  [${newLat.toFixed(6)}, ${newLon.toFixed(6)}]`);
+                                console.log(`  Distance moved: ${distanceMoved.toFixed(2)} meters`);
+                                console.log(`  Winning road: ${winningRoad.name} (score: ${winningScore.toFixed(3)})`);
+
+                                // Actually update the coordinates
+                                originalPoints[i].coords[0] = newLat; // latitude
+                                originalPoints[i].coords[1] = newLon; // longitude
+
+                                pointsModified++;
+                                totalDistanceMoved += distanceMoved;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+
+            }
+        }
+    }
+
+    // Print enhanced summary statistics
+    console.log('=== SNAP TO ROAD COMPLETE ===');
+    console.log(`Total bad points found: ${totalBadPoints}`);
+    console.log(`Points successfully processed: ${pointsModified}`);
+    console.log(`  - Snapped to roads: ${pointsModified - pointsInterpolated}`);
+    console.log(`  - Used interpolation: ${pointsInterpolated}`);
+    console.log(`Points skipped (no solution): ${pointsSkippedNoRoads}`);
+    console.log(`Points skipped (no road scores): ${pointsSkippedNoScores}`);
+    console.log(`Average distance moved: ${pointsModified > 0 ? (totalDistanceMoved / pointsModified).toFixed(2) : 0} meters`);
+    console.log(`Success rate: ${totalBadPoints > 0 ? ((pointsModified / totalBadPoints) * 100).toFixed(1) : 0}%`);
+
+    // Log failed points summary if any
+    if (failedPoints.length > 0) {
+        console.log(`\n=== FAILED POINTS ANALYSIS ===`);
+        console.log(`Total failed points: ${failedPoints.length}`);
+
+        // Group failed points by geographic region
+        const failedByRegion = {};
+        for (const point of failedPoints) {
+            const gridLat = Math.floor(point.coords[0] / 0.01) * 0.01;
+            const gridLon = Math.floor(point.coords[1] / 0.01) * 0.01;
+            const gridKey = `${gridLat.toFixed(2)},${gridLon.toFixed(2)}`;
+            failedByRegion[gridKey] = (failedByRegion[gridKey] || 0) + 1;
+        }
+
+        console.log('Top regions with failed points:');
+        const sortedRegions = Object.entries(failedByRegion)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5);
+
+        for (const [region, count] of sortedRegions) {
+            console.log(`  ${region}: ${count} points`);
+        }
+    }
+
+    //return the finished map snapped object with updated coordinates
+    console.log(JSON.stringify(originalArray,null,2))
+    return originalArray
+
+}
+
+function angleDifference(bearing1, bearing2) {
+    let diff = Math.abs(bearing1 - bearing2) % 360;
+    if (diff > 180) diff = 360 - diff;
+    return diff;
+}
+
+//export data to the server.js 
+export async function load_map_snap_data(){
+    const MapSnapped = await snapToRoad()
+    return {mapMatch : MapSnapped }
 }

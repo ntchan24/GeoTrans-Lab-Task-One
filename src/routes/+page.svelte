@@ -3,7 +3,7 @@
     export let data;
     $: ({ jsonData, logids, timestamp, times_of_day, bins, sensors, distances } = data.base_chart_data || {});
     $: ({ routeids } = data.map_plot_data || {});
-    $: ({ mapMatch } = data.map_snap_data || {});
+    $: ({ mapMatch } = data.map_snap_data || {}); //from the map snap script 
 
     import TodVisualization from '$lib/components/tod_visualization.svelte';
     import MostDataPiechart from '$lib/components/most_data_piechart.svelte';

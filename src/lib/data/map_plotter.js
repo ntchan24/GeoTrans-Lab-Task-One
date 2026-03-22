@@ -79,6 +79,7 @@ export function pointsProcessing(data){
                         const timestamp = entry.timestamp;
 
                         const pointObject = {
+                            index: entries.indexOf(entry),
                             accuracy: gps_coords.accuracy,
                             coords:[gps_coords.latitude,gps_coords.longitude],
                             time: timestamp
