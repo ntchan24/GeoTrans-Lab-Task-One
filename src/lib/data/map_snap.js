@@ -33,7 +33,7 @@ function loadRoadDataFromFile(folderName, filename) {
 }
 
 
-function returnPoints(road_data,distanceWeight = 0.00, headingWeight = 0.10, neighborWeight=0.90, exponentialDecayFactor = 5, tolerance = 10){
+function returnPoints(road_data, headingWeight = 0.05, neighborWeight=0.90,  roadTypePriorityWeight = 0.05, tolerance = 10){
     //identifies the points with gps accuracy more than the tolerance, changes the object in line 
 
     //when we have an accurate point, we have a head 
@@ -215,13 +215,9 @@ function returnPoints(road_data,distanceWeight = 0.00, headingWeight = 0.10, nei
                             let roadScores = {}
 
                             for (let roadIndex = 0; roadIndex < nearbyRoads_badpoint.length; roadIndex++){
-                                //distance score 
                                 const road = nearbyRoads_badpoint[roadIndex]
                                 const snapPoint = turf.nearestPointOnLine(road.lineString,turfPointBadpoint, {units: 'meters'})
                                 const distMeters = snapPoint.properties.dist
-                                //normalize the distance score:use exponential decay
-                                const distanceScore = Math.exp(-distMeters / exponentialDecayFactor)
-
                                 //heading score 
                                 let headingScore
                                 //check if we have both head and tail nodes 
@@ -298,9 +294,16 @@ function returnPoints(road_data,distanceWeight = 0.00, headingWeight = 0.10, nei
                                 } else {
                                     neighborScore =  0.0
                                 }
+                                //road type score:
+                                //primary motorways get highest score, etc 
+                                const roadType = road.highway
+                                let roadTypePriority = getRoadPriority(roadType);
 
-                                const finalScore = (distanceWeight*distanceScore) + (headingWeight*headingScore) + (neighborWeight*neighborScore)
+                                const finalScore = (roadTypePriority*roadTypePriorityWeight) + (headingWeight*headingScore) + (neighborWeight*neighborScore)
                                 roadScores[roadIndex] = finalScore
+
+                                
+
 
 
                             }
@@ -340,6 +343,27 @@ function returnPoints(road_data,distanceWeight = 0.00, headingWeight = 0.10, nei
     return processedData
 }
 
+function getRoadPriority(roadType) {
+    //weighted priorities for all the different kinds of roads 
+    const priorities = {
+        'motorway': 1.0,
+        'trunk': 0.95,
+        'primary': 0.9,
+        'secondary': 0.85,
+        'tertiary': 0.8,
+        'motorway_link': 0.75,
+        'trunk_link': 0.7,
+        'residential': 0.6,
+        'unclassified': 0.5,
+        'living_street': 0.4,
+        'service': 0.3,
+        'footway': 0.1,
+        'cycleway': 0.1,
+        'pedestrian': 0.05,
+        'track': 0.05
+    };
+    return priorities[roadType] || 0.2;
+}
 
 function buildSpatialIndex(elements){
     // Validate input
@@ -451,8 +475,9 @@ function findCloseRoads(gpsPoint, index, points, elements, maxPointsReturned, ma
 
             const line = turf.lineString(road.geometry.map(pt => [pt.lon, pt.lat]));
 
-
-            // Create road info object with ID and metadata
+            //we want to exclude certain roads, ie footpaths
+            
+                // Create road info object with ID and metadata
             nearbyRoads.push({
                 id: road.id,
                 type: road.type,
@@ -464,6 +489,9 @@ function findCloseRoads(gpsPoint, index, points, elements, maxPointsReturned, ma
                 geometry : road.geometry,
                 lineString : line
             });
+            
+
+            
         }
     }
 

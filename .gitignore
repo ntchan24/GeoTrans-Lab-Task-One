@@ -23,4 +23,6 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
 * .claude
-* .jsonsrc/lib/data/overpassapiwebdata/
+* .json
+src/lib/data/overpassapiwebdata/
+
