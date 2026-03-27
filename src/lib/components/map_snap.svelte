@@ -16,11 +16,15 @@
 
   let { mapMatch } = $props();//receive props from page.svelte, this is the map matched data
 
-
+  console.log("props received")
   // Function to get the selected trip data
   function getSelectedTripData() {
     //all the return nulls are checks to not return bad data 
-    if (!selectedRoute || !selectedTrip || !mapMatch) return null;
+    if (!selectedRoute || !selectedTrip || !mapMatch){
+      return null
+    } else {
+      console.log("props received")
+    }
 
     const routeData = mapMatch[selectedRoute];
     if (!routeData) return null;
@@ -44,7 +48,7 @@
 
     // Create points and collect coordinates for the line
     tripData.forEach((point, index) => {
-      // convert coordinates [lat, lng] to [lng, lat] for GeoJSON
+      //  [lng, lat] for GeoJSON
       const coords = [point.coords[1], point.coords[0]];
       lineCoordinates.push(coords);
 
@@ -55,7 +59,9 @@
         time: point.time,
         coords: `${coords[0].toFixed(6)}, ${coords[1].toFixed(6)}`,
         ...(point.distancetoNext && { distanceToNext: `${point.distancetoNext.toFixed(3)} km` }),
-        ...(point.speedBetweenNext && { speed: `${(point.speedBetweenNext).toFixed(1)} km/h` })
+        ...(point.speedBetweenNext && { speed: `${(point.speedBetweenNext).toFixed(1)} km/h` }),
+        snapped: point.snapped,
+        snappedRoad : point.snappedRoad
         //this uses the spread operator , this is an alternative to just assigning the variable 
       });
 
@@ -166,7 +172,7 @@
         map.getCanvas().style.cursor = 'pointer';
 
         // Extract properties populated via Turf.js
-        const { index, coords, accuracy, time, distanceToNext, speed } = e.features[0].properties;
+        const { index, coords, accuracy, time, distanceToNext, speed, snapped, snappedRoad } = e.features[0].properties;
         const coordinates = e.features[0].geometry.coordinates.slice();
 
         const htmlContent = `
@@ -176,7 +182,9 @@
             Accuracy: ${accuracy?.toFixed(2) || 'N/A'} m<br>
             Time: ${time ? new Date(time).toLocaleString() : 'N/A'}
             ${distanceToNext ? `<br>Distance to next: ${distanceToNext}` : ''}
-            ${speed ? `<br>Speed: ${speed}` : ''}
+            ${speed ? `<br>Speed: ${speed}` : ''} <br>
+            Snapped: ${snapped} <br>
+            SnappedRoad : ${snappedRoad}
           </div>
         `;
 

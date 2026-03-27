@@ -1,6 +1,6 @@
 //this is where the json data is processed
 
-import data from '../coe-snic-default-rtdb-logs-export.json'
+import data from '../coe-snic-default-rtdb-logs-export.json' with { type: "json" }
 //import from src/lib/coe-snic-default-rtdb-logs-export.json
 
 // Helper function to normalize entries - converts object to array and filters nulls

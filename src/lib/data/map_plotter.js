@@ -7,9 +7,9 @@
 
 //for each trip we need to find the points / entries 
 
-import data from '../coe-snic-default-rtdb-logs-export.json'
+import data from '../coe-snic-default-rtdb-logs-export.json' with { type: "json" }
 import dayjs from 'dayjs';
-import duration from 'dayjs/plugin/duration';
+import duration from 'dayjs/plugin/duration.js';
 
 dayjs.extend(duration);
 
