@@ -34,11 +34,18 @@ function loadRoadDataFromFile(folderName, filename) {
 
 
 function returnPoints(road_data, headingWeight = 0.05, neighborWeight=0.90,  roadTypePriorityWeight = 0.05, tolerance = 10){
-    //identifies the points with gps accuracy more than the tolerance, changes the object in line 
+    //identifies the points with gps accuracy more than the tolerance, changes the object in line
 
-    //when we have an accurate point, we have a head 
-    //keep that head until we get an inaccurate point 
-    //when we get an inaccurate point, find the tail by iterating through until 
+    console.log('returnPoints called with weights:', {
+        headingWeight,
+        neighborWeight,
+        roadTypePriorityWeight,
+        sum: headingWeight + neighborWeight + roadTypePriorityWeight
+    });
+
+    //when we have an accurate point, we have a head
+    //keep that head until we get an inaccurate point
+    //when we get an inaccurate point, find the tail by iterating through until
 
     // Get the processed data with proper index and structure
     const processedData = Plotter.lineDistancesSpeed(data) //this is the original data 
@@ -323,10 +330,15 @@ function returnPoints(road_data, headingWeight = 0.05, neighborWeight=0.90,  roa
                             console.log(winningSnapPointCoordinates)
                             
                             point.coords = [winningSnapPointCoordinates[1],winningSnapPointCoordinates[0]]
-                            
+
                             point.snapped = true
 
-                            point.snappedRoad = winningRoad
+                            // Store only essential road info (not the full object with lineString)
+                            point.snappedRoad = {
+                                id: winningRoad.id,
+                                name: winningRoad.name,
+                                highway: winningRoad.highway
+                            }
 
 
                         } else{
@@ -509,10 +521,22 @@ function angleDifference(bearing1, bearing2) {
 }
 
 //export data to the server.js
-export async function load_map_snap_data(){
-    const road_data = loadRoadDataFromFile("overpassapiwebdata","export.json")
+export async function load_map_snap_data({threshold, mode, headingWeight, neighborWeight, roadTypePriorityWeight}){
 
-    const MapSnapped = returnPoints(road_data)
+    if (mode === "snapped"){
+        const road_data = loadRoadDataFromFile("overpassapiwebdata","export.json")
 
-    return {mapMatch : MapSnapped }
+        // Use provided weights or defaults
+        const hWeight = headingWeight ?? 0.05;
+        const nWeight = neighborWeight ?? 0.90;
+        const rWeight = roadTypePriorityWeight ?? 0.05;
+
+        const MapSnapped = returnPoints(road_data, hWeight, nWeight, rWeight)
+
+        return {mapMatch : MapSnapped }
+    }
+
+    const originalData = await Plotter.load_map_data();
+    return { mapMatch: originalData.routeids };
+
 }

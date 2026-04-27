@@ -16,7 +16,7 @@ dayjs.extend(duration);
 import { normalizeEntries, distanceInKmBetweenEarthCoordinates, extractLogIds } from './processing_script.js'
 
 //pass data to server
-export function load_map_data(){
+export async function load_map_data(){
     // return {routeids : pointsProcessing(data)}
     return {routeids : lineDistancesSpeed(data)}
 

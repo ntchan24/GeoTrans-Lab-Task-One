@@ -3,11 +3,161 @@
 <!-- dropdown for the different trips, render based on the trip -->
 <!-- map with lines and points  -->
 <script>
-  
+
   import { onMount, onDestroy } from 'svelte';
   import maplibregl from 'maplibre-gl';
   import 'maplibre-gl/dist/maplibre-gl.css';
   import * as turf from '@turf/turf';
+  import { page } from '$app/stores';
+  import { goto, invalidateAll } from '$app/navigation';
+  import Switch from './Switch.svelte';
+  // this is for the toggle switch
+
+ //initialize the value from the url bc it changes when you interact with the toggle switch
+  let switchvalue = $state($page.url.searchParams.get('mode') ?? 'original');
+
+  // Initialize weight parameters from URL - these are the "applied" weights
+  let appliedHeadingWeight = Number($page.url.searchParams.get('headingWeight') ?? 0.05);
+  let appliedNeighborWeight = Number($page.url.searchParams.get('neighborWeight') ?? 0.90);
+  let appliedRoadTypePriorityWeight = Number($page.url.searchParams.get('roadTypePriorityWeight') ?? 0.05);
+
+  // Pending weights that the sliders modify (start with applied values)
+  let headingWeight = $state(appliedHeadingWeight);
+  let neighborWeight = $state(appliedNeighborWeight);
+  let roadTypePriorityWeight = $state(appliedRoadTypePriorityWeight);
+
+  // Track whether weights have been changed but not applied
+  let hasUnappliedChanges = $derived(
+    Math.abs(headingWeight - appliedHeadingWeight) > 0.001 ||
+    Math.abs(neighborWeight - appliedNeighborWeight) > 0.001 ||
+    Math.abs(roadTypePriorityWeight - appliedRoadTypePriorityWeight) > 0.001
+  );
+
+  // Function to adjust weights when one slider changes
+  function adjustWeights(changedWeight, newValue) {
+    const oldValue = changedWeight === 'heading' ? headingWeight :
+                     changedWeight === 'neighbor' ? neighborWeight : roadTypePriorityWeight;
+
+    const delta = newValue - oldValue;
+    const remaining = 1.0 - newValue;
+
+    if (changedWeight === 'heading') {
+      headingWeight = newValue;
+
+      if (remaining === 0) {
+        // If set to 1, others must be 0
+        neighborWeight = 0;
+        roadTypePriorityWeight = 0;
+      } else if (neighborWeight + roadTypePriorityWeight > 0) {
+        // Distribute proportionally based on current values
+        const ratio = neighborWeight / (neighborWeight + roadTypePriorityWeight);
+        neighborWeight = remaining * ratio;
+        roadTypePriorityWeight = remaining * (1 - ratio);
+      } else {
+        // If both others are 0, distribute equally
+        neighborWeight = remaining / 2;
+        roadTypePriorityWeight = remaining / 2;
+      }
+    } else if (changedWeight === 'neighbor') {
+      neighborWeight = newValue;
+
+      if (remaining === 0) {
+        headingWeight = 0;
+        roadTypePriorityWeight = 0;
+      } else if (headingWeight + roadTypePriorityWeight > 0) {
+        const ratio = headingWeight / (headingWeight + roadTypePriorityWeight);
+        headingWeight = remaining * ratio;
+        roadTypePriorityWeight = remaining * (1 - ratio);
+      } else {
+        headingWeight = remaining / 2;
+        roadTypePriorityWeight = remaining / 2;
+      }
+    } else if (changedWeight === 'roadType') {
+      roadTypePriorityWeight = newValue;
+
+      if (remaining === 0) {
+        headingWeight = 0;
+        neighborWeight = 0;
+      } else if (headingWeight + neighborWeight > 0) {
+        const ratio = headingWeight / (headingWeight + neighborWeight);
+        headingWeight = remaining * ratio;
+        neighborWeight = remaining * (1 - ratio);
+      } else {
+        headingWeight = remaining / 2;
+        neighborWeight = remaining / 2;
+      }
+    }
+
+    // No longer automatically update URL - wait for Apply button
+  }
+
+  async function applyWeights() {
+    // Update the applied weights to match pending weights
+    appliedHeadingWeight = headingWeight;
+    appliedNeighborWeight = neighborWeight;
+    appliedRoadTypePriorityWeight = roadTypePriorityWeight;
+
+    // Update URL and reload data
+    await updateWeightsInURL();
+  }
+
+  async function resetWeights() {
+    // Reset pending weights to the applied values
+    headingWeight = appliedHeadingWeight;
+    neighborWeight = appliedNeighborWeight;
+    roadTypePriorityWeight = appliedRoadTypePriorityWeight;
+  }
+
+  async function updateWeightsInURL() {
+    const params = new URLSearchParams($page.url.searchParams);
+    params.set('headingWeight', headingWeight.toFixed(2));
+    params.set('neighborWeight', neighborWeight.toFixed(2));
+    params.set('roadTypePriorityWeight', roadTypePriorityWeight.toFixed(2));
+
+    // Log to browser console for debugging
+    console.log('Applying weights to map:', {
+      headingWeight: headingWeight.toFixed(2),
+      neighborWeight: neighborWeight.toFixed(2),
+      roadTypePriorityWeight: roadTypePriorityWeight.toFixed(2),
+      sum: (headingWeight + neighborWeight + roadTypePriorityWeight).toFixed(2)
+    });
+
+    // Navigate and then invalidate all data to force a reload
+    await goto(`?${params}`, { keepFocus: true, noScroll: true, replaceState: false });
+    await invalidateAll();
+  }
+
+  function updateMode(value) {
+    const params = new URLSearchParams($page.url.searchParams);
+
+    //page.url.searchParams is the current URL query string.
+    //wrap in a new URLsearchparams so we can change it without changing the url
+    // conceptually:
+    // {
+    //   'threshold': '0.7',
+    //   'zoom': '12'
+    // }
+    params.set('mode', value);
+
+    // Preserve route and trip selections when switching modes
+    if (selectedRoute) {
+      params.set('route', selectedRoute);
+    }
+    if (selectedTrip) {
+      params.set('trip', selectedTrip);
+    }
+
+    goto(`?${params}`, { keepFocus: true, noScroll: true, replaceState: true });
+
+  }
+ //rerun to refresh whenever switchvalue changes
+ $effect(() => {
+  const currentMode = $page.url.searchParams.get('mode') ?? 'original';
+  if (switchvalue !== currentMode) {
+    updateMode(switchvalue);
+  }
+ });
+
 
   const MAPTILER_KEY =  "UHv14Wh0RtdXjkmopUTK";
 
@@ -60,9 +210,9 @@
         coords: `${coords[0].toFixed(6)}, ${coords[1].toFixed(6)}`,
         ...(point.distancetoNext && { distanceToNext: `${point.distancetoNext.toFixed(3)} km` }),
         ...(point.speedBetweenNext && { speed: `${(point.speedBetweenNext).toFixed(1)} km/h` }),
-        snapped: point.snapped,
-        snappedRoad : point.snappedRoad
-        //this uses the spread operator , this is an alternative to just assigning the variable 
+        snapped: point.snapped || false,
+        snappedRoad : point.snappedRoad ? JSON.stringify(point.snappedRoad) : null
+        //this uses the spread operator , this is an alternative to just assigning the variable
       });
 
       features.push(pointFeature);
@@ -86,6 +236,21 @@
 
     const tripData = getSelectedTripData();
     const geojsonData = createGeoJSONFromTrip(tripData);
+
+    // Log snapped points for debugging
+    if (tripData && switchvalue === 'snapped') {
+      const snappedPoints = tripData.filter(p => p.snapped);
+      console.log(`Found ${snappedPoints.length} snapped points out of ${tripData.length} total points`);
+
+      // Log a sample of snapped points to see coordinate changes
+      if (snappedPoints.length > 0) {
+        console.log('Sample snapped point:', {
+          coords: snappedPoints[0].coords,
+          accuracy: snappedPoints[0].accuracy,
+          snappedRoad: snappedPoints[0].snappedRoad?.name || snappedPoints[0].snappedRoad?.id
+        });
+      }
+    }
 
     // Update the source data
     const source = map.getSource('route-data');
@@ -146,7 +311,7 @@
       }
     });
 
-    // Add Points Layer
+    // Add Points Layer with conditional styling for snapped points
     map.addLayer({
       id: 'route-points',
       type: 'circle',
@@ -154,8 +319,18 @@
       filter:['==', '$type', 'Point'], // Only style the points
       paint: {
         'circle-radius': 8,
-        'circle-color': '#007cbf',
-        'circle-stroke-width': 2,
+        'circle-color': [
+          'case',
+          ['get', 'snapped'],
+          '#ff5a5f',  // Red for snapped points
+          '#007cbf'   // Blue for unsnapped points
+        ],
+        'circle-stroke-width': [
+          'case',
+          ['get', 'snapped'],
+          3,  // Thicker border for snapped points
+          2   // Normal border for unsnapped
+        ],
         'circle-stroke-color': '#ffffff'
       }
     });
@@ -184,7 +359,7 @@
             ${distanceToNext ? `<br>Distance to next: ${distanceToNext}` : ''}
             ${speed ? `<br>Speed: ${speed}` : ''} <br>
             Snapped: ${snapped} <br>
-            SnappedRoad : ${snappedRoad}
+            ${snappedRoad ? `SnappedRoad: ${JSON.parse(snappedRoad).name || JSON.parse(snappedRoad).id || 'Unknown'}` : 'Not snapped'}
           </div>
         `;
 
@@ -234,8 +409,9 @@
     if (map) map.remove();
   });
 
-  let selectedRoute = $state('');
-  let selectedTrip = $state('');
+  // Initialize from URL parameters to preserve selections across mode switches
+  let selectedRoute = $state($page.url.searchParams.get('route') ?? '');
+  let selectedTrip = $state($page.url.searchParams.get('trip') ?? '');
 
   // Debug when route changes
   $effect(() => {
@@ -251,13 +427,51 @@
       ? mapMatch[selectedRoute].map(tripObj => Object.keys(tripObj)[0])
       : []
   );
+  // Track previous route to detect actual route changes
+  let previousRoute = $state('');
+
   //run this when any variable inside it changes
     //svelte reactive statement
   $effect(()=> {
     console.log('Route changed to:', selectedRoute);
     console.log('Available trips:', availableTrips);
-    if (selectedRoute){
+    // Only clear trip selection when route actually changes to a different value
+    // not when component re-renders with same route
+    if (selectedRoute && selectedRoute !== previousRoute) {
       selectedTrip = '';
+      previousRoute = selectedRoute;
+    }
+  });
+
+  // Update URL when route selection changes
+  $effect(() => {
+    const currentRouteInUrl = $page.url.searchParams.get('route') ?? '';
+    if (selectedRoute !== currentRouteInUrl) {
+      const params = new URLSearchParams($page.url.searchParams);
+      if (selectedRoute) {
+        params.set('route', selectedRoute);
+      } else {
+        params.delete('route');
+      }
+      // Clear trip from URL when route changes
+      if (selectedRoute !== previousRoute) {
+        params.delete('trip');
+      }
+      goto(`?${params}`, { keepFocus: true, noScroll: true, replaceState: true });
+    }
+  });
+
+  // Update URL when trip selection changes
+  $effect(() => {
+    const currentTripInUrl = $page.url.searchParams.get('trip') ?? '';
+    if (selectedTrip !== currentTripInUrl) {
+      const params = new URLSearchParams($page.url.searchParams);
+      if (selectedTrip) {
+        params.set('trip', selectedTrip);
+      } else {
+        params.delete('trip');
+      }
+      goto(`?${params}`, { keepFocus: true, noScroll: true, replaceState: true });
     }
   });
 
@@ -275,55 +489,157 @@
     }
   });
 
-  
-
-
 </script>
 
-<div>
-  <!-- Route dropdown -->
-  <div class="form-control">
-    <label class="label" for="route-select">
-      <span class="label-text">Select Route</span>
-    </label>
-    <select id="route-select" class="select select-bordered w-full max-w-xs" bind:value={selectedRoute}>
-      <option value="">-- Select a route --</option>
-      {#each availableRoutes as route}
-        <option value={route}>{route}</option>
-      {/each}
-    </select>
+<div class="py-4">
+
+  <div class="px-4 py-2">
+    <!-- Route dropdown -->
+    <div class="form-control">
+      <label class="label" for="route-select">
+        <span class="label-text">Select Route</span>
+      </label>
+      <select id="route-select" class="select select-bordered w-full max-w-xs" bind:value={selectedRoute}>
+        <option value="">-- Select a route --</option>
+        {#each availableRoutes as route}
+          <option value={route}>{route}</option>
+        {/each}
+      </select>
+    </div>
   </div>
 
-  <!-- Trip dropdown -->
-  <div class="form-control">
-    <label class="label" for="trip-select">
-      <span class="label-text">Select Trip</span>
-    </label>
-    <select
-      id="trip-select"
-      class="select select-bordered w-full max-w-xs"
-      bind:value={selectedTrip}
-      disabled={selectedRoute === '' || availableTrips.length === 0}
-    >
-      <option value="">-- Select a trip --</option>
-      {#each availableTrips as trip}
-        <option value={trip}>{trip}</option>
-      {/each}
-    </select>
-  </div>
 
+  <div class="px-4 py-2">
+    <!-- Trip dropdown -->
+    <div class="form-control">
+      <label class="label" for="trip-select">
+        <span class="label-text">Select Trip</span>
+      </label>
+      <select
+        id="trip-select"
+        class="select select-bordered w-full max-w-xs"
+        bind:value={selectedTrip}
+        disabled={selectedRoute === '' || availableTrips.length === 0}
+      >
+        <option value="">-- Select a trip --</option>
+        {#each availableTrips as trip}
+          <option value={trip}>{trip}</option>
+        {/each}
+      </select>
+    </div>
+  </div>
 </div>
 
+<!-- for debug  -->
 <!-- <div>
   <p>{selectedRoute},{selectedTrip}</p>
 </div> -->
 
+<!-- toggles and stuff go here for user control  -->
+<div class = "controlpanel">
+  <div class="px-4">
+  <!-- og vs snapped points -->
+  <Switch bind:value = {switchvalue} label= "Choose between original and snapped data" design = "multi" options = {["original", "snapped"]} fontSize = {12}/>
+  </div>
+  {#if switchvalue === 'snapped'}
+    <div class="weight-controls">
+      <h3>Snapping Parameter Weights</h3>
+
+      <div class="slider-group">
+        <label class="slider-label">
+          <span>Heading Weight: {headingWeight.toFixed(2)}</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={headingWeight}
+            oninput={(e) => adjustWeights('heading', parseFloat(e.target.value))}
+            class="slider"
+          />
+        </label>
+      </div>
+
+      <div class="slider-group">
+        <label class="slider-label">
+          <span>Neighbor Weight: {neighborWeight.toFixed(2)}</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={neighborWeight}
+            oninput={(e) => adjustWeights('neighbor', parseFloat(e.target.value))}
+            class="slider"
+          />
+        </label>
+      </div>
+
+      <div class="slider-group">
+        <label class="slider-label">
+          <span>Road Type Weight: {roadTypePriorityWeight.toFixed(2)}</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={roadTypePriorityWeight}
+            oninput={(e) => adjustWeights('roadType', parseFloat(e.target.value))}
+            class="slider"
+          />
+        </label>
+      </div>
+
+      <div class="sum-display">
+        Total: {(headingWeight + neighborWeight + roadTypePriorityWeight).toFixed(2)}
+      </div>
+
+      {#if hasUnappliedChanges}
+        <div class="button-group">
+          <button
+            class="apply-button"
+            onclick={applyWeights}
+          >
+            Apply Weights
+          </button>
+          <button
+            class="reset-button"
+            onclick={resetWeights}
+          >
+            Reset
+          </button>
+        </div>
+        <!-- <div class="unapplied-indicator">
+          ⚠️ Changes not applied yet
+        </div> -->
+      {:else}
+        <div class="applied-indicator">
+          ✓ Weights applied
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+</div>
 
 <div class="map-wrap">
   <a href="https://www.maptiler.com" class="watermark"><img
     src="https://api.maptiler.com/resources/logo.svg" alt="MapTiler logo"/></a>
   <div class="map" bind:this={mapContainer}></div>
 
+  {#if switchvalue === 'snapped'}
+    <div class="map-legend">
+      <h4>Point Status</h4>
+      <div class="legend-item">
+        <span class="legend-circle" style="background-color: #ff5a5f;"></span>
+        <span>Snapped to Road</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-circle" style="background-color: #007cbf;"></span>
+        <span>Original Position</span>
+      </div>
+    </div>
+  {/if}
 
   <!-- <div><p>{JSON.stringify(mapMatch, null, 2)}</p></div> -->
 </div>
@@ -347,8 +663,140 @@
     height: 100%;
   }
 
+  .weight-controls {
+    margin-top: 20px;
+    padding: 15px;
+    background: white;
+    border-radius: 8px;
+  }
 
+  .weight-controls h3 {
+    margin-bottom: 15px;
+    font-size: 14px;
+    font-weight: 600;
+  }
 
+  .slider-group {
+    margin-bottom: 15px;
+  }
+
+  .slider-label {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .slider-label span {
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .slider {
+    width: 100%;
+    max-width: 300px;
+    cursor: pointer;
+  }
+
+  .sum-display {
+    margin-top: 10px;
+    padding: 8px;
+    background: white;
+    border-radius: 4px;
+    font-weight: 600;
+    text-align: center;
+    border: 1px solid #ddd;
+  }
+
+  .map-legend {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: white;
+    padding: 12px;
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    z-index: 1000;
+  }
+
+  .map-legend h4 {
+    margin: 0 0 8px 0;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 11px;
+  }
+
+  .legend-circle {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid white;
+    box-shadow: 0 0 2px rgba(0,0,0,0.3);
+  }
+
+  .button-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+  }
+
+  .apply-button, .reset-button {
+    flex: 1;
+    padding: 8px 16px;
+    border-radius: 4px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .apply-button {
+    background: #10b981;
+    color: white;
+  }
+
+  .apply-button:hover {
+    background: #059669;
+  }
+
+  .reset-button {
+    background: #6b7280;
+    color: white;
+  }
+
+  .reset-button:hover {
+    background: #4b5563;
+  }
+
+  .unapplied-indicator {
+    margin-top: 10px;
+    padding: 6px;
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fbbf24;
+    border-radius: 4px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .applied-indicator {
+    margin-top: 10px;
+    padding: 6px;
+    background: #d1fae5;
+    color: #065f46;
+    border: 1px solid #10b981;
+    border-radius: 4px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 500;
+  }
 
 </style>
 
