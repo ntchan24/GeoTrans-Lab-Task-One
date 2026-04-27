@@ -11,6 +11,8 @@
   import { page } from '$app/stores';
   import { goto, invalidateAll } from '$app/navigation';
   import Switch from './Switch.svelte';
+  import KDBush from 'kdbush';
+  import * as geokdbush from 'geokdbush';
   // this is for the toggle switch
 
  //initialize the value from the url bc it changes when you interact with the toggle switch
@@ -167,9 +169,28 @@
   let { mapMatch } = $props();//receive props from page.svelte, this is the map matched data
 
   console.log("props received")
+
+  // Region mode state
+  let regionMode = $state('view'); // 'view' | 'draw'
+  let currentPolygon = $state([]);
+  let definedRegion = $state(null);
+  let regionStats = $state({ totalPoints: 0, byRoute: {} });
+
+  // Filter state
+  let selectedRoutes = $state(['SE', 'NW', 'CENTRAL', 'RWIS_SW', 'SW']);
+
+  // Spatial index for region queries
+  let spatialIndex = null;
+  let spatialPoints = [];
+
+  // Flag to prevent race conditions
+  let isUpdatingFromRegion = false;
+
+  // Debug flag for troubleshooting
+  const DEBUG_REGION = true;
   // Function to get the selected trip data
   function getSelectedTripData() {
-    //all the return nulls are checks to not return bad data 
+    //all the return nulls are checks to not return bad data
     if (!selectedRoute || !selectedTrip || !mapMatch){
       return null
     } else {
@@ -180,10 +201,54 @@
     if (!routeData) return null;
 
     // Find the trip object with the matching trip ID
-    const tripObj = routeData.find(trip => Object.keys(trip)[0] === selectedTrip); //each trip object has one key (logid) 
+    const tripObj = routeData.find(trip => Object.keys(trip)[0] === selectedTrip); //each trip object has one key (logid)
     if (!tripObj) return null;
 
     return tripObj[selectedTrip];
+  }
+
+  // Get all trip data from selected routes
+  function getAllPointsFromSelectedRoutes() {
+    if (!mapMatch || selectedRoutes.length === 0) {
+      return [];
+    }
+
+    const allPoints = [];
+
+    // Iterate through each selected route
+    selectedRoutes.forEach(route => {
+      const routeData = mapMatch[route];
+      if (routeData && Array.isArray(routeData)) {
+        // Iterate through each trip in the route
+        routeData.forEach(tripObj => {
+          const tripId = Object.keys(tripObj)[0];
+          const tripPoints = tripObj[tripId];
+
+          if (tripPoints && Array.isArray(tripPoints)) {
+            // Add route and trip info to each point
+            tripPoints.forEach(point => {
+              allPoints.push({
+                ...point,
+                route: route,
+                tripId: tripId
+              });
+            });
+          }
+        });
+      }
+    });
+
+    if (DEBUG_REGION) {
+      console.log(`Collected ${allPoints.length} points from ${selectedRoutes.length} routes`);
+      const routeCounts = {};
+      selectedRoutes.forEach(r => routeCounts[r] = 0);
+      allPoints.forEach(p => {
+        if (routeCounts[p.route] !== undefined) routeCounts[p.route]++;
+      });
+      console.log('Points per route:', routeCounts);
+    }
+
+    return allPoints;
   }
 
   // Function to create GeoJSON from trip data
@@ -234,36 +299,362 @@
   function updateMapData() {
     if (!map || !map.loaded()) return;
 
-    const tripData = getSelectedTripData();
-    const geojsonData = createGeoJSONFromTrip(tripData);
+    // If region is defined, always use all routes data
+    if (definedRegion) {
+      const allPointsData = getAllPointsFromSelectedRoutes();
 
-    // Log snapped points for debugging
-    if (tripData && switchvalue === 'snapped') {
-      const snappedPoints = tripData.filter(p => p.snapped);
-      console.log(`Found ${snappedPoints.length} snapped points out of ${tripData.length} total points`);
+      if (allPointsData && allPointsData.length > 0) {
+        // Only build index if it doesn't exist
+        if (!spatialIndex || spatialPoints.length === 0) {
+          if (DEBUG_REGION) console.log('Building spatial index for all routes in updateMapData');
+          buildSpatialIndex(allPointsData);
+        }
+        filterPointsInRegion();
+      }
+    } else {
+      // Normal visualization of selected trip only
+      const tripData = getSelectedTripData();
+      // Normal visualization without region
+      const geojsonData = createGeoJSONFromTrip(tripData);
 
-      // Log a sample of snapped points to see coordinate changes
-      if (snappedPoints.length > 0) {
-        console.log('Sample snapped point:', {
-          coords: snappedPoints[0].coords,
-          accuracy: snappedPoints[0].accuracy,
-          snappedRoad: snappedPoints[0].snappedRoad?.name || snappedPoints[0].snappedRoad?.id
+      // Log snapped points for debugging
+      if (tripData && switchvalue === 'snapped') {
+        const snappedPoints = tripData.filter(p => p.snapped);
+        console.log(`Found ${snappedPoints.length} snapped points out of ${tripData.length} total points`);
+
+        // Log a sample of snapped points to see coordinate changes
+        if (snappedPoints.length > 0) {
+          console.log('Sample snapped point:', {
+            coords: snappedPoints[0].coords,
+            accuracy: snappedPoints[0].accuracy,
+            snappedRoad: snappedPoints[0].snappedRoad?.name || snappedPoints[0].snappedRoad?.id
+          });
+        }
+      }
+
+      // Update the source data
+      const source = map.getSource('route-data');
+      if (source) {
+        source.setData(geojsonData);
+
+        // Fit map bounds to the new data if there are features
+        if (geojsonData.features.length > 0 && tripData && tripData.length > 0) {
+          const bounds = turf.bbox(geojsonData);
+          map.fitBounds(bounds, {
+            padding: 50,
+            duration: 1000
+          });
+        }
+      }
+    }
+  }
+
+  // Build spatial index for efficient region queries
+  function buildSpatialIndex(tripData) {
+    if (!tripData || tripData.length === 0) {
+      if (DEBUG_REGION) console.log('No trip data to build index');
+      return;
+    }
+
+    spatialPoints = tripData.map((p, idx) => ({
+      ...p,
+      lon: p.coords[1],
+      lat: p.coords[0],
+      originalIndex: idx
+    }));
+
+    // Create index with the number of points
+    spatialIndex = new KDBush(spatialPoints.length);
+
+    // Add each point manually
+    for (const point of spatialPoints) {
+      spatialIndex.add(point.lon, point.lat);
+    }
+
+    // Finalize the index
+    spatialIndex.finish();
+
+    if (DEBUG_REGION) {
+      console.log(`Spatial index built with ${spatialPoints.length} points`);
+      if (spatialPoints.length > 0) {
+        console.log('Sample point:', {
+          lon: spatialPoints[0].lon,
+          lat: spatialPoints[0].lat,
+          snapped: spatialPoints[0].snapped
         });
       }
     }
+  }
 
-    // Update the source data
+  // Handle map click for polygon drawing
+  function handleMapClick(e) {
+    if (regionMode === 'draw') {
+      const point = [e.lngLat.lng, e.lngLat.lat];
+      currentPolygon = [...currentPolygon, point];
+      updatePolygonLayer();
+    }
+  }
+
+  // Complete polygon and switch to view mode
+  function completePolygon() {
+    if (currentPolygon.length >= 3) {
+      // Get all points from selected routes instead of just selected trip
+      const allPointsData = getAllPointsFromSelectedRoutes();
+
+      if (allPointsData && allPointsData.length > 0) {
+        // Set flag to prevent race condition
+        isUpdatingFromRegion = true;
+
+        // Build spatial index from ALL points
+        buildSpatialIndex(allPointsData);
+
+        // Close the polygon by adding first point at the end
+        definedRegion = turf.polygon([[...currentPolygon, currentPolygon[0]]]);
+
+        console.log('Polygon completed, filtering points from all selected routes...');
+
+        // Now filter with valid index
+        filterPointsInRegion();
+
+        regionMode = 'view';
+
+        // Reset flag after a short delay
+        setTimeout(() => {
+          isUpdatingFromRegion = false;
+        }, 100);
+      } else {
+        console.error('No data available from selected routes');
+      }
+    }
+  }
+
+  // Clear region and reset visualization
+  function clearRegion() {
+    definedRegion = null;
+    currentPolygon = [];
+    regionStats = { totalPoints: 0, byRoute: {} };
+
+    // Clear polygon layers
+    if (map && map.loaded()) {
+      const polygonSource = map.getSource('region-polygon');
+      const drawingSource = map.getSource('drawing-points');
+      if (polygonSource) {
+        polygonSource.setData(turf.featureCollection([]));
+      }
+      if (drawingSource) {
+        drawingSource.setData(turf.featureCollection([]));
+      }
+    }
+
+    // Reset to normal visualization
+    updateMapData();
+  }
+
+  // Filter points within the defined region
+  function filterPointsInRegion() {
+    if (DEBUG_REGION) {
+      console.log('=== filterPointsInRegion called ===');
+      console.log('definedRegion:', !!definedRegion);
+      console.log('spatialIndex:', !!spatialIndex);
+      console.log('spatialPoints.length:', spatialPoints.length);
+      console.log('selectedRoutes:', selectedRoutes);
+    }
+
+    if (!definedRegion) {
+      console.log('No defined region');
+      return;
+    }
+    if (!spatialIndex) {
+      console.log('No spatial index');
+      return;
+    }
+    if (spatialPoints.length === 0) {
+      console.log('No spatial points to filter');
+      return;
+    }
+
+    console.log(`Filtering ${spatialPoints.length} points from selected routes for region...`);
+
+    // Get bounding box of region
+    const bbox = turf.bbox(definedRegion);
+
+    // Calculate center and search radius
+    const centerLon = (bbox[0] + bbox[2]) / 2;
+    const centerLat = (bbox[1] + bbox[3]) / 2;
+    const searchRadiusKm = turf.distance(
+      turf.point([bbox[0], bbox[1]]),
+      turf.point([bbox[2], bbox[3]])
+    );
+    const searchRadiusM = searchRadiusKm * 1000; // Convert km to meters for geokdbush
+
+    console.log(`Searching around center: [${centerLon}, ${centerLat}] with radius: ${searchRadiusKm} km`);
+
+    // Get indices of points near the region using geokdbush
+    const candidateIndices = geokdbush.around(
+      spatialIndex,
+      centerLon,
+      centerLat,
+      10000, // Get up to 10000 points
+      searchRadiusM
+    );
+
+    // Map indices back to actual points
+    const candidates = candidateIndices.map(idx => spatialPoints[idx]);
+
+    console.log(`Found ${candidates.length} candidate points near region (from ${spatialPoints.length} total)`);
+
+    // Filter candidates by exact polygon containment
+    const pointsInRegion = candidates.filter(p => {
+      const point = turf.point([p.lon, p.lat]);
+      return turf.booleanPointInPolygon(point, definedRegion);
+    });
+
+    console.log(`${pointsInRegion.length} points inside polygon`);
+
+    // Apply route filters (points already have route property from getAllPointsFromSelectedRoutes)
+    const filteredPoints = pointsInRegion.filter(p => {
+      return p.route && selectedRoutes.includes(p.route);
+    });
+
+    console.log(`${filteredPoints.length} points after route filter from routes: ${selectedRoutes.join(', ')}`);
+
+    // Calculate statistics
+    updateRegionStats(filteredPoints);
+
+    // Update map visualization with filtered points
+    updateMapWithFilteredPoints(filteredPoints);
+  }
+
+  // Update statistics for the region
+  function updateRegionStats(points) {
+    const stats = {
+      totalPoints: points.length,
+      byRoute: {}
+    };
+
+    // Initialize route counts
+    selectedRoutes.forEach(route => {
+      stats.byRoute[route] = 0;
+    });
+
+    // Count points by route
+    points.forEach(point => {
+      if (point.route && stats.byRoute[point.route] !== undefined) {
+        stats.byRoute[point.route]++;
+      }
+    });
+
+    if (DEBUG_REGION) {
+      console.log('Region statistics:', stats);
+    }
+
+    regionStats = stats;
+  }
+
+  // Update map with filtered points
+  function updateMapWithFilteredPoints(filteredPoints) {
+    if (!map || !map.loaded()) return;
+
+    console.log(`Updating map with ${filteredPoints.length} filtered points`);
+
+    const features = [];
+    const lineCoordinates = [];
+
+    // Create point features
+    filteredPoints.forEach((point, index) => {
+      const coords = [point.lon, point.lat];
+      lineCoordinates.push(coords);
+
+      const pointFeature = turf.point(coords, {
+        index: index,
+        accuracy: point.accuracy,
+        time: point.time,
+        coords: `${coords[0].toFixed(6)}, ${coords[1].toFixed(6)}`,
+        ...(point.distancetoNext && { distanceToNext: `${point.distancetoNext.toFixed(3)} km` }),
+        ...(point.speedBetweenNext && { speed: `${(point.speedBetweenNext).toFixed(1)} km/h` }),
+        snapped: point.snapped || false,
+        snappedRoad: point.snappedRoad ? JSON.stringify(point.snappedRoad) : null,
+        inRegion: true,
+        route: selectedRoute
+      });
+
+      features.push(pointFeature);
+    });
+
+    // Create line if we have at least 2 points
+    if (lineCoordinates.length >= 2) {
+      const lineFeature = turf.lineString(lineCoordinates, {
+        name: `${selectedRoute} - ${selectedTrip} (Region Filtered)`,
+        totalDistance: `${turf.length(turf.lineString(lineCoordinates), { units: 'kilometers' }).toFixed(2)} km`,
+        inRegion: true
+      });
+      features.push(lineFeature);
+    }
+
+    const geojson = turf.featureCollection(features);
+
+    // Update map source
     const source = map.getSource('route-data');
     if (source) {
-      source.setData(geojsonData);
+      console.log(`Setting map data with ${geojson.features.length} features`);
+      source.setData(geojson);
 
-      // Fit map bounds to the new data if there are features
-      if (geojsonData.features.length > 0 && tripData && tripData.length > 0) {
-        const bounds = turf.bbox(geojsonData);
+      // Fit map to filtered points if we have any
+      if (features.length > 0) {
+        const bounds = turf.bbox(geojson);
         map.fitBounds(bounds, {
           padding: 50,
-          duration: 1000
+          duration: 500
         });
+      }
+    } else {
+      console.error('Could not find route-data source');
+    }
+  }
+
+  // Handle route filter changes
+  function handleRouteFilterChange() {
+    if (definedRegion) {
+      if (DEBUG_REGION) console.log('Route filter changed, rebuilding index and re-filtering');
+
+      // Get new set of points from newly selected routes
+      const allPointsData = getAllPointsFromSelectedRoutes();
+
+      if (allPointsData && allPointsData.length > 0) {
+        // Rebuild index with new route selection
+        buildSpatialIndex(allPointsData);
+
+        // Re-filter points
+        filterPointsInRegion();
+      } else {
+        console.log('No points available from selected routes');
+        // Clear the map if no routes selected
+        const source = map.getSource('route-data');
+        if (source) {
+          source.setData(turf.featureCollection([]));
+        }
+        updateRegionStats([]);
+      }
+    }
+  }
+
+  // Update polygon visualization layers
+  function updatePolygonLayer() {
+    if (!map || !map.loaded()) return;
+
+    // Update drawing points
+    const points = currentPolygon.map(coord => turf.point(coord));
+    const drawingSource = map.getSource('drawing-points');
+    if (drawingSource) {
+      drawingSource.setData(turf.featureCollection(points));
+    }
+
+    // Update polygon preview if we have at least 3 points
+    if (currentPolygon.length >= 3) {
+      const polygon = turf.polygon([[...currentPolygon, currentPolygon[0]]]);
+      const polygonSource = map.getSource('region-polygon');
+      if (polygonSource) {
+        polygonSource.setData(turf.featureCollection([polygon]));
       }
     }
   }
@@ -297,7 +688,19 @@
         type: 'geojson',
         data: geojsonData
       });
-    
+
+      // Add polygon drawing source
+      map.addSource('region-polygon', {
+        type: 'geojson',
+        data: turf.featureCollection([])
+      });
+
+      // Add drawing points source
+      map.addSource('drawing-points', {
+        type: 'geojson',
+        data: turf.featureCollection([])
+      });
+
 
     // Add Line Layer
     map.addLayer({
@@ -311,7 +714,7 @@
       }
     });
 
-    // Add Points Layer with conditional styling for snapped points
+    // Add Points Layer with conditional styling for snapped points and region filtering
     map.addLayer({
       id: 'route-points',
       type: 'circle',
@@ -321,9 +724,24 @@
         'circle-radius': 8,
         'circle-color': [
           'case',
-          ['get', 'snapped'],
-          '#ff5a5f',  // Red for snapped points
-          '#007cbf'   // Blue for unsnapped points
+          ['get', 'inRegion'],
+          [
+            'match',
+            ['get', 'route'],
+            'SE', '#ff5a5f',
+            'NW', '#007cbf',
+            'CENTRAL', '#00a86b',
+            'RWIS_SW', '#ff8c00',
+            'SW', '#9370db',
+            '#999' // default
+          ],
+          // Original color scheme for non-region points
+          [
+            'case',
+            ['get', 'snapped'],
+            '#ff5a5f',  // Red for snapped points
+            '#007cbf'   // Blue for unsnapped points
+          ]
         ],
         'circle-stroke-width': [
           'case',
@@ -332,6 +750,42 @@
           2   // Normal border for unsnapped
         ],
         'circle-stroke-color': '#ffffff'
+      }
+    });
+
+    // Add region polygon fill layer
+    map.addLayer({
+      id: 'region-fill',
+      type: 'fill',
+      source: 'region-polygon',
+      paint: {
+        'fill-color': '#088',
+        'fill-opacity': 0.2
+      }
+    });
+
+    // Add region polygon outline layer
+    map.addLayer({
+      id: 'region-outline',
+      type: 'line',
+      source: 'region-polygon',
+      paint: {
+        'line-color': '#088',
+        'line-width': 3,
+        'line-dasharray': [2, 1]
+      }
+    });
+
+    // Add drawing points layer
+    map.addLayer({
+      id: 'drawing-points',
+      type: 'circle',
+      source: 'drawing-points',
+      paint: {
+        'circle-radius': 5,
+        'circle-color': '#088',
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#fff'
       }
     });
 
@@ -394,6 +848,9 @@
         map.getCanvas().style.cursor = '';
         popup.remove();
       });
+
+      // Add click handler for polygon drawing
+      map.on('click', handleMapClick);
 
       // Update map with initially selected trip if any
       if (selectedTrip) {
@@ -477,10 +934,10 @@
 
   // Update map when trip selection changes
   $effect(() => {
-    if (selectedTrip) {
+    if (selectedTrip && !isUpdatingFromRegion) {
       console.log('Updating map for trip:', selectedTrip);
       updateMapData();
-    } else if (map && map.loaded()) {
+    } else if (!selectedTrip && map && map.loaded()) {
       // Clear map when no trip is selected
       const source = map.getSource('route-data');
       if (source) {
@@ -488,6 +945,9 @@
       }
     }
   });
+
+  // Removed duplicate effect that was causing race condition
+  // Filtering is now handled by updateMapData() and explicit calls
 
 </script>
 
@@ -613,8 +1073,80 @@
           ⚠️ Changes not applied yet
         </div> -->
       {:else}
-        <div class="applied-indicator">
+        <!-- <div class="applied-indicator">
           ✓ Weights applied
+        </div> -->
+      {/if}
+    </div>
+  {/if}
+
+  <!-- Region Mode Controls -->
+  {#if switchvalue === 'snapped'}
+    <div class="region-controls">
+      <h3>Region Selection</h3>
+
+      <div class="mode-toggle">
+        <button
+          class="btn btn-sm {regionMode === 'draw' ? 'btn-primary' : 'btn-outline'}"
+          onclick={() => regionMode = 'draw'}
+          disabled={regionMode === 'draw' || !selectedTrip}>
+          Draw Region
+        </button>
+        <button
+          class="btn btn-sm btn-success"
+          onclick={completePolygon}
+          disabled={currentPolygon.length < 3}>
+          Complete ({currentPolygon.length} pts)
+        </button>
+        <button
+          class="btn btn-sm btn-error"
+          onclick={clearRegion}
+          disabled={!definedRegion}>
+          Clear Region
+        </button>
+      </div>
+
+      <!-- Route Filters -->
+      <div class="filter-panel">
+        <h4>Filter by Routes</h4>
+        <div class="form-control">
+          {#each ['SE', 'NW', 'CENTRAL', 'RWIS_SW', 'SW'] as route}
+            <label class="label cursor-pointer justify-start gap-2">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-xs"
+                bind:group={selectedRoutes}
+                value={route}
+                onchange={() => handleRouteFilterChange()}
+                checked={selectedRoutes.includes(route)}>
+              <span class="label-text text-sm">{route}</span>
+            </label>
+          {/each}
+        </div>
+      </div>
+
+      <!-- Statistics Panel -->
+      {#if definedRegion && regionStats.totalPoints > 0}
+        <div class="stats-panel">
+          <h4 class="font-bold text-sm mb-2">Region Statistics</h4>
+          <div class="stat-item">
+            <span>Total Points:</span>
+            <span class="font-mono">{regionStats.totalPoints}</span>
+          </div>
+
+          {#if Object.keys(regionStats.byRoute).length > 0}
+            <div class="mt-2">
+              <h5 class="font-semibold text-xs">Points by Route:</h5>
+              {#each Object.entries(regionStats.byRoute) as [route, count]}
+                {#if count > 0}
+                  <div class="stat-item">
+                    <span class="text-xs">{route}:</span>
+                    <span class="font-mono text-xs">{count}</span>
+                  </div>
+                {/if}
+              {/each}
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -638,6 +1170,19 @@
         <span class="legend-circle" style="background-color: #007cbf;"></span>
         <span>Original Position</span>
       </div>
+      {#if regionMode === 'draw'}
+        <div class="legend-item" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd;">
+          <span style="color: #088; font-weight: bold;">Drawing Mode Active</span>
+        </div>
+        <div class="legend-item">
+          <span style="font-size: 10px;">Click to add points</span>
+        </div>
+      {/if}
+      {#if definedRegion}
+        <div class="legend-item" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd;">
+          <span style="color: #088; font-weight: bold;">Region Defined</span>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -796,6 +1341,53 @@
     text-align: center;
     font-size: 12px;
     font-weight: 500;
+  }
+
+  .region-controls {
+    margin-top: 20px;
+    padding: 15px;
+    background: white;
+    border-radius: 8px;
+    max-width: 300px;
+  }
+
+  .region-controls h3 {
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .mode-toggle {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  .filter-panel {
+    border-top: 1px solid #e5e7eb;
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+
+  .filter-panel h4 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .stats-panel {
+    margin-top: 12px;
+    padding: 12px;
+    background: #f3f4f6;
+    border-radius: 6px;
+    font-size: 0.875rem;
+  }
+
+  .stat-item {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
   }
 
 </style>
