@@ -188,6 +188,27 @@
 
   // Debug flag for troubleshooting
   const DEBUG_REGION = true;
+
+  // Diagnostic function for testing (can be called from browser console)
+  if (typeof window !== 'undefined') {
+    window.debugRegion = () => {
+      console.log('=== REGION DEBUG INFO ===');
+      console.log('Region Mode:', regionMode);
+      console.log('Selected Routes:', selectedRoutes);
+      console.log('Defined Region:', definedRegion ? 'Yes' : 'No');
+      console.log('Filtered Points:', filteredPoints.length);
+      if (filteredPoints.length > 0) {
+        const snapped = filteredPoints.filter(p => p.snapped === true).length;
+        const unsnapped = filteredPoints.filter(p => p.snapped !== true).length;
+        console.log(`Snapped: ${snapped}, Unsnapped: ${unsnapped}`);
+        console.log('Sample points (first 5):');
+        filteredPoints.slice(0, 5).forEach((p, i) => {
+          console.log(`  Point ${i}: snapped=${p.snapped}, route=${p.route}, accuracy=${p.accuracy}`);
+        });
+      }
+      console.log('=========================');
+    };
+  }
   // Function to get the selected trip data
   function getSelectedTripData() {
     //all the return nulls are checks to not return bad data
@@ -241,11 +262,29 @@
     if (DEBUG_REGION) {
       console.log(`Collected ${allPoints.length} points from ${selectedRoutes.length} routes`);
       const routeCounts = {};
-      selectedRoutes.forEach(r => routeCounts[r] = 0);
+      const snappedCounts = {};
+      selectedRoutes.forEach(r => {
+        routeCounts[r] = 0;
+        snappedCounts[r] = 0;
+      });
       allPoints.forEach(p => {
-        if (routeCounts[p.route] !== undefined) routeCounts[p.route]++;
+        if (routeCounts[p.route] !== undefined) {
+          routeCounts[p.route]++;
+          if (p.snapped === true) {
+            snappedCounts[p.route]++;
+          }
+        }
       });
       console.log('Points per route:', routeCounts);
+      console.log('Snapped points per route:', snappedCounts);
+
+      // Sample check for snapped property
+      const samplePoints = allPoints.slice(0, 5);
+      console.log('Sample points snapped status:', samplePoints.map(p => ({
+        route: p.route,
+        snapped: p.snapped,
+        hasCoords: !!p.coords
+      })));
     }
 
     return allPoints;
@@ -398,6 +437,13 @@
   // Complete polygon and switch to view mode
   function completePolygon() {
     if (currentPolygon.length >= 3) {
+      // Check if map data is loaded
+      if (!mapMatch) {
+        console.error('Map data not loaded yet');
+        alert('Please wait for map data to load before drawing regions');
+        return;
+      }
+
       // Get all points from selected routes instead of just selected trip
       const allPointsData = getAllPointsFromSelectedRoutes();
 
@@ -446,8 +492,8 @@
       }
     }
 
-    // Reset to normal visualization
     updateMapData();
+    
   }
 
   // Filter points within the defined region
@@ -511,12 +557,32 @@
 
     console.log(`${pointsInRegion.length} points inside polygon`);
 
+
+
     // Apply route filters (points already have route property from getAllPointsFromSelectedRoutes)
     const filteredPoints = pointsInRegion.filter(p => {
       return p.route && selectedRoutes.includes(p.route);
     });
 
     console.log(`${filteredPoints.length} points after route filter from routes: ${selectedRoutes.join(', ')}`);
+
+    // Debug: Check snapped status of filtered points
+    if (DEBUG_REGION) {
+      const snappedInRegion = filteredPoints.filter(p => p.snapped === true).length;
+      const unsnappedInRegion = filteredPoints.filter(p => p.snapped !== true).length;
+      console.log(`In region: ${snappedInRegion} snapped, ${unsnappedInRegion} unsnapped points`);
+
+      // Sample filtered points
+      if (filteredPoints.length > 0) {
+        console.log('Sample filtered point:', {
+          route: filteredPoints[0].route,
+          snapped: filteredPoints[0].snapped,
+          coords: filteredPoints[0].coords,
+          lon: filteredPoints[0].lon,
+          lat: filteredPoints[0].lat
+        });
+      }
+    }
 
     // Calculate statistics
     updateRegionStats(filteredPoints);
@@ -560,10 +626,21 @@
     const features = [];
     const lineCoordinates = [];
 
+    // Debug: Count snapped vs unsnapped for color verification
+    let snappedCount = 0;
+    let unsnappedCount = 0;
+
     // Create point features
     filteredPoints.forEach((point, index) => {
       const coords = [point.lon, point.lat];
       lineCoordinates.push(coords);
+
+      // Track snapped status for debugging
+      if (point.snapped === true) {
+        snappedCount++;
+      } else {
+        unsnappedCount++;
+      }
 
       const pointFeature = turf.point(coords, {
         index: index,
@@ -575,16 +652,22 @@
         snapped: point.snapped || false,
         snappedRoad: point.snappedRoad ? JSON.stringify(point.snappedRoad) : null,
         inRegion: true,
-        route: selectedRoute
+        route: point.route  // Use the route from the point, not selectedRoute
       });
 
       features.push(pointFeature);
     });
 
+    // Log color distribution for verification
+    if (DEBUG_REGION) {
+      console.log(`Point colors in region: ${snappedCount} snapped (red), ${unsnappedCount} unsnapped (blue)`);
+      console.log(`Snapped percentage: ${((snappedCount / (snappedCount + unsnappedCount)) * 100).toFixed(1)}%`);
+    }
+
     // Create line if we have at least 2 points
     if (lineCoordinates.length >= 2) {
       const lineFeature = turf.lineString(lineCoordinates, {
-        name: `${selectedRoute} - ${selectedTrip} (Region Filtered)`,
+        name: `Region Filtered (${selectedRoutes.join(', ')})`,
         totalDistance: `${turf.length(turf.lineString(lineCoordinates), { units: 'kilometers' }).toFixed(2)} km`,
         inRegion: true
       });
@@ -611,6 +694,8 @@
       console.error('Could not find route-data source');
     }
   }
+
+
 
   // Handle route filter changes
   function handleRouteFilterChange() {
@@ -724,24 +809,9 @@
         'circle-radius': 8,
         'circle-color': [
           'case',
-          ['get', 'inRegion'],
-          [
-            'match',
-            ['get', 'route'],
-            'SE', '#ff5a5f',
-            'NW', '#007cbf',
-            'CENTRAL', '#00a86b',
-            'RWIS_SW', '#ff8c00',
-            'SW', '#9370db',
-            '#999' // default
-          ],
-          // Original color scheme for non-region points
-          [
-            'case',
-            ['get', 'snapped'],
-            '#ff5a5f',  // Red for snapped points
-            '#007cbf'   // Blue for unsnapped points
-          ]
+          ['get', 'snapped'],
+          '#ff5a5f',  // Red for snapped points
+          '#007cbf'   // Blue for unsnapped points
         ],
         'circle-stroke-width': [
           'case',
@@ -1050,9 +1120,9 @@
         </label>
       </div>
 
-      <div class="sum-display">
+      <!-- <div class="sum-display">
         Total: {(headingWeight + neighborWeight + roadTypePriorityWeight).toFixed(2)}
-      </div>
+      </div> -->
 
       {#if hasUnappliedChanges}
         <div class="button-group">
@@ -1084,13 +1154,19 @@
   {#if switchvalue === 'snapped'}
     <div class="region-controls">
       <h3>Region Selection</h3>
+      <p class="text-sm text-gray-600 mb-2">Draw a region to analyze points from selected routes</p>
+
+      {#if !mapMatch}
+        <div class="text-sm text-yellow-600 mb-2">⏳ Loading map data...</div>
+      {/if}
 
       <div class="mode-toggle">
         <button
           class="btn btn-sm {regionMode === 'draw' ? 'btn-primary' : 'btn-outline'}"
           onclick={() => regionMode = 'draw'}
-          disabled={regionMode === 'draw' || !selectedTrip}>
-          Draw Region
+
+          disabled={regionMode === 'draw' || !mapMatch}>
+          Start Drawing Region
         </button>
         <button
           class="btn btn-sm btn-success"
