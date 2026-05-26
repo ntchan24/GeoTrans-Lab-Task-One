@@ -48,9 +48,8 @@
 <style>
 	.chart-container {
 		position: relative;
-		height:400px;
+		height: 100%;
 		width: 100%;
-		margin: 20px 0;
 	}
 </style>
 

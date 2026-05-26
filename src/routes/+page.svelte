@@ -15,7 +15,7 @@
     import { TODchartType, piechartType, myOptions } from "./settings.js"
 
     // Dashboard state
-    let activeTab = 'time-of-day';
+    let activeTab = 'analytics';
 
     // Chart configurations
     let type = TODchartType
@@ -145,91 +145,56 @@
     }
 </script>
 
-<div class="dashboard-container">
-    <div class="navbar bg-base-100 shadow-sm">
-  <div class="navbar-start">
-    <div class="dropdown">
-      <div tabindex="0" role="button" class="btn btn-ghost btn-circle">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"> <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" /> </svg>
-      </div>
-      <ul
-        tabindex="-1"
-        class="menu menu-sm dropdown-content bg-base-100 rounded-box z-1 mt-3 w-52 p-2 shadow">
-        <li><button
+<div class="dashboard-container flex flex-1 min-h-0 overflow-hidden">
+    <aside class="w-56 bg-base-200 shadow-sm p-4 flex flex-col gap-4">
+        <h1 class="text-xl font-bold px-2">GeoTrans Lab</h1>
+        <ul class="menu menu-md bg-base-200 rounded-box w-full">
+            <li><button
+                    class:active={activeTab === 'analytics'}
+                    on:click={() => activeTab = 'analytics'}
+                >
+                    Analytics
+                </button></li>
+            <li><button
+                    class:active={activeTab === 'map-plot'}
+                    on:click={() => activeTab = 'map-plot'}
+                >
+                    Map Plot
+                </button></li>
+            <li><button
+                    class:active={activeTab === 'map-snap'}
+                    on:click={() => activeTab = 'map-snap'}
+                >
+                    Map Snapping Plot
+                </button></li>
+        </ul>
+    </aside>
 
-                class:active={activeTab === 'time-of-day'}
-                on:click={() => activeTab = 'time-of-day'}
-            >
-                Time of Day
-            </button></li>
-        <li><button
-
-                class:active={activeTab === 'sensor-data'}
-                on:click={() => activeTab = 'sensor-data'}
-            >
-                Sensor Data
-            </button></li>
-        <li><button
-
-                class:active={activeTab === 'distance'}
-                on:click={() => activeTab = 'distance'}
-            >
-                Distance Analysis
-            </button></li>
-        <li><button
-
-                class:active={activeTab === 'map-plot'}
-                on:click={() => activeTab = 'map-plot'}
-            >
-                Map Plot
-            </button></li>
-
-        <li><button
-
-                class:active={activeTab === 'map-snap'}
-                on:click={() => activeTab = 'map-snap'}
-            >
-                Map Snapping Plot
-            </button></li>
-      </ul>
-    </div>
-  </div>
-  <div class="navbar-center">
-  
-    <h1>GeoTrans Lab</h1>
-    
-  </div>
-
-</div>
-
-
-    
-    <main class="dashboard-content">
-        {#if activeTab === 'time-of-day'}
-            <div class="chart-container">
-
-                <TodVisualization {config} />
-            </div>
-        {:else if activeTab === 'sensor-data'}
-            <div class="chart-container">
-
-                {#if sensors && Array.isArray(sensors) && config2}
-                    <MostDataPiechart {config2} />
-                {/if}
-            </div>
-        {:else if activeTab === 'distance'}
-            <div class="chart-container">
-
-                <div class="charts-grid">
-                    <div class ="flex justify-center">
-
-                        <MostTravelBoxplot sensorData={distances[2]}/>
+    <main class="dashboard-content flex-1 p-4">
+        {#if activeTab === 'analytics'}
+            <div class="grid grid-cols-2 grid-rows-2 gap-6 h-full">
+                <section class="flex flex-col min-h-0">
+                    <div class="flex-1 min-h-0">
+                        <TodVisualization {config} />
                     </div>
-                    <div>
-
-                        <MostTravelBarChart {config3}/>
+                </section>
+                <section class="flex flex-col min-h-0">
+                    <div class="flex-1 min-h-0">
+                        {#if sensors && Array.isArray(sensors) && config2}
+                            <MostDataPiechart {config2} />
+                        {/if}
                     </div>
-                </div>
+                </section>
+                <section class="flex flex-col min-h-0">
+                    <div class="flex-1 min-h-0">
+                        <MostTravelBoxplot sensorData={distances[2]} />
+                    </div>
+                </section>
+                <section class="flex flex-col min-h-0">
+                    <div class="flex-1 min-h-0">
+                        <MostTravelBarChart {config3} />
+                    </div>
+                </section>
             </div>
         {:else if activeTab === 'map-plot'}
             <div class="chart-container">

@@ -102,7 +102,7 @@
 </script>
 
 {#if browser}
-  <div bind:this={chartContainer} style="height: 400px; width: 100%; position: relative;">
+  <div bind:this={chartContainer} style="height: 100%; width: 100%; position: relative;">
     <canvas bind:this={canvas}></canvas>
   </div>
 {/if}
