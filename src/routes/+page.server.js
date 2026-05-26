@@ -1,8 +1,12 @@
 import { extractData } from "$lib/data/processing_script";
 import { load_map_data } from "$lib/data/map_plotter";
 import { load_map_snap_data } from "$lib/data/map_snap";
+import { redirect } from "@sveltejs/kit";
 
-export async function load({url}){
+export async function load({locals,url}){
+    if (!locals.user) throw redirect(303, '/login')
+        //makes sure only logged in users get to see the site 
+
     const mode = url.searchParams.get('mode') ?? 'original';
     const threshold = Number(url.searchParams.get('threshold') ?? 0.5);
     const headingWeight = Number(url.searchParams.get('headingWeight') ?? 0.05);
