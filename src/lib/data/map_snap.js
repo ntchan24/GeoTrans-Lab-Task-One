@@ -22,13 +22,14 @@ import path from 'path';
 
 // Load road data from JSON file
 function loadRoadDataFromFile(folderName, filename) {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url))
+    const fullPath = path.join(__dirname, folderName, filename)
     try {
-        const __dirname = path.dirname(fileURLToPath(import.meta.url))
-        const exportdata = JSON.parse(readFileSync(path.join(__dirname, folderName, filename), 'utf-8'))
-        console.log("data fetched")
+        const exportdata = JSON.parse(readFileSync(fullPath, 'utf-8'))
+        console.log(`Road data loaded from ${fullPath}`)
         return exportdata
     } catch (error) {
-       console.error(error)
+        throw new Error(`Failed to load road data from ${fullPath}: ${error.message}`)
     }
 }
 
@@ -48,10 +49,15 @@ function returnPoints(road_data, headingWeight = 0.05, neighborWeight=0.90,  roa
     //when we get an inaccurate point, find the tail by iterating through until
 
     // Get the processed data with proper index and structure
-    const processedData = Plotter.lineDistancesSpeed(data) //this is the original data 
+    const processedData = Plotter.lineDistancesSpeed(data) //this is the original data
+
+    const elements = road_data?.data?.elements
+    if (!Array.isArray(elements)) {
+        throw new Error("Road data is missing data.elements array")
+    }
 
     //build spatial index to use for road matching
-    const {index: spatialIndex, points: spatialPoints} = buildSpatialIndex(road_data.elements || [])
+    const {index: spatialIndex, points: spatialPoints} = buildSpatialIndex(elements)
 
 
     for (const route of Object.keys(processedData)){
@@ -128,7 +134,7 @@ function returnPoints(road_data, headingWeight = 0.05, neighborWeight=0.90,  roa
                                 gpsPoint_head,
                                 spatialIndex,
                                 spatialPoints,
-                                road_data.elements,
+                                elements,
                                 maxPointsToReturnHead,  // Dynamic based on search radius
                                 searchRadiusKmHead,
                                 true  // Enable progressive search
@@ -160,7 +166,7 @@ function returnPoints(road_data, headingWeight = 0.05, neighborWeight=0.90,  roa
                                 gpsPoint_tail,
                                 spatialIndex,
                                 spatialPoints,
-                                road_data.elements,
+                                elements,
                                 maxPointsToReturnTail,  // Dynamic based on search radius
                                 searchRadiusKmTail,
                                 true  // Enable progressive search
@@ -194,11 +200,16 @@ function returnPoints(road_data, headingWeight = 0.05, neighborWeight=0.90,  roa
                                 gpsPoint_badpoint,
                                 spatialIndex,
                                 spatialPoints,
-                                road_data.elements,
+                                elements,
                                 maxPointsToReturnbadpoint,  // Dynamic based on search radius
                                 searchRadiusKmbadpoint,
                                 true  // Enable progressive search
                             )
+
+                            if (nearbyRoads_badpoint.length === 0 || nearbyRoads_head.length === 0 || nearbyRoads_tail.length === 0) {
+                                console.warn(`No candidate roads for point (head=${nearbyRoads_head.length}, tail=${nearbyRoads_tail.length}, badpoint=${nearbyRoads_badpoint.length}); leaving point unsnapped`)
+                                continue
+                            }
 
                             // console.log(nearbyRoads_head)
                             // console.log(nearbyRoads_tail)
@@ -524,7 +535,7 @@ function angleDifference(bearing1, bearing2) {
 export async function load_map_snap_data({threshold, mode, headingWeight, neighborWeight, roadTypePriorityWeight}){
 
     if (mode === "snapped"){
-        const road_data = loadRoadDataFromFile("overpassapiwebdata","export.json")
+        const road_data = loadRoadDataFromFile(".", "edmonton-roads.json")
 
         // Use provided weights or defaults
         const hWeight = headingWeight ?? 0.05;
