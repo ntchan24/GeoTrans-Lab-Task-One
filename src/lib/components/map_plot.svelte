@@ -226,6 +226,14 @@
   let selectedRoute = $state('');
   let selectedTrip = $state('');
 
+  // Sidebar collapse state
+  let sidebarCollapsed = $state(false);
+  function toggleSidebar() {
+    sidebarCollapsed = !sidebarCollapsed;
+    // Let the width transition begin, then tell MapLibre to recompute size
+    setTimeout(() => { map?.resize?.(); }, 220);
+  }
+
   // Debug when route changes
   $effect(() => {
     console.log('selectedRoute value:', selectedRoute, 'type:', typeof selectedRoute);
@@ -269,63 +277,120 @@
 
 </script>
 
-<div>
-  <!-- Route dropdown -->
-  <div class="form-control">
-    <label class="label" for="route-select">
-      <span class="label-text">Select Route</span>
-    </label>
-    <select id="route-select" class="select select-bordered w-full max-w-xs" bind:value={selectedRoute}>
-      <option value="">-- Select a route --</option>
-      {#each availableRoutes as route}
-        <option value={route}>{route}</option>
-      {/each}
-    </select>
-  </div>
-
-  <!-- Trip dropdown -->
-  <div class="form-control">
-    <label class="label" for="trip-select">
-      <span class="label-text">Select Trip</span>
-    </label>
-    <select
-      id="trip-select"
-      class="select select-bordered w-full max-w-xs"
-      bind:value={selectedTrip}
-      disabled={selectedRoute === '' || availableTrips.length === 0}
+<div class="snap-layout">
+  <aside class="snap-sidebar bg-base-200" class:collapsed={sidebarCollapsed}>
+    <button
+      type="button"
+      class="collapse-toggle"
+      onclick={toggleSidebar}
+      aria-label={sidebarCollapsed ? 'Expand controls' : 'Collapse controls'}
+      title={sidebarCollapsed ? 'Expand controls' : 'Collapse controls'}
     >
-      <option value="">-- Select a trip --</option>
-      {#each availableTrips as trip}
-        <option value={trip}>{trip}</option>
-      {/each}
-    </select>
+      {sidebarCollapsed ? '›' : '‹'}
+    </button>
+
+    {#if !sidebarCollapsed}
+    <div class="sidebar-content">
+      <div class="px-4 py-2">
+        <!-- Route dropdown -->
+        <div class="form-control">
+          <label class="label" for="route-select">
+            <span class="label-text">Select Route</span>
+          </label>
+          <select id="route-select" class="select select-bordered w-full max-w-xs" bind:value={selectedRoute}>
+            <option value="">-- Select a route --</option>
+            {#each availableRoutes as route}
+              <option value={route}>{route}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+
+      <div class="px-4 py-2">
+        <!-- Trip dropdown -->
+        <div class="form-control">
+          <label class="label" for="trip-select">
+            <span class="label-text">Select Trip</span>
+          </label>
+          <select
+            id="trip-select"
+            class="select select-bordered w-full max-w-xs"
+            bind:value={selectedTrip}
+            disabled={selectedRoute === '' || availableTrips.length === 0}
+          >
+            <option value="">-- Select a trip --</option>
+            {#each availableTrips as trip}
+              <option value={trip}>{trip}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+    </div>
+    {/if}
+  </aside>
+
+  <div class="map-wrap">
+    <a href="https://www.maptiler.com" class="watermark"><img
+      src="https://api.maptiler.com/resources/logo.svg" alt="MapTiler logo"/></a>
+    <div class="map" bind:this={mapContainer}></div>
+
+
+    <!-- <div><p>{JSON.stringify(routeids, null, 2)}</p></div> -->
   </div>
-
-</div>
-
-<!-- <div>
-  <p>{selectedRoute},{selectedTrip}</p>
-</div> -->
-
-
-<div class="map-wrap">
-  <a href="https://www.maptiler.com" class="watermark"><img
-    src="https://api.maptiler.com/resources/logo.svg" alt="MapTiler logo"/></a>
-  <div class="map" bind:this={mapContainer}></div>
-
-
-  <!-- <div><p>{JSON.stringify(routeids, null, 2)}</p></div> -->
 </div>
 
 <style>
 
 
-  .map-wrap {
-    position: relative;
+  .snap-layout {
+    display: flex;
     width: 100%;
     height: calc(100vh - 77px);
-    /* calculate height of the screen (viewport height) minus the heading */
+  }
 
+  .snap-sidebar {
+    width: 14rem;
+    flex-shrink: 0;
+    border-right: 1px solid #e5e7eb;
+    overflow-y: auto;
+    overflow-x: hidden;
+    transition: width 0.2s ease;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .snap-sidebar.collapsed {
+    width: 2rem;
+  }
+
+  .collapse-toggle {
+    width: 100%;
+    padding: 6px 8px;
+    text-align: right;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #e5e7eb;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    color: #4b5563;
+  }
+
+  .collapse-toggle:hover {
+    background: rgba(0, 0, 0, 0.05);
+  }
+
+  .sidebar-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .map-wrap {
+    position: relative;
+    flex: 1;
+    height: 100%;
+    /* fills horizontal space left by the collapsible sidebar */
   }
 
   .map {

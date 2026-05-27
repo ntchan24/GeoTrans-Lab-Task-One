@@ -172,9 +172,9 @@
 
     <main
         class="dashboard-content flex-1"
-        class:p-4={activeTab !== 'map-snap'}
-        class:px-4={activeTab === 'map-snap'}
-        class:pb-4={activeTab === 'map-snap'}
+        class:p-4={activeTab !== 'map-snap' && activeTab !== 'map-plot'}
+        class:px-4={activeTab === 'map-snap' || activeTab === 'map-plot'}
+        class:pb-4={activeTab === 'map-snap' || activeTab === 'map-plot'}
     >
         {#if activeTab === 'analytics'}
             <div class="grid grid-cols-2 grid-rows-2 gap-6 h-full">
