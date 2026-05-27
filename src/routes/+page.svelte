@@ -3,7 +3,8 @@
     export let data;
     $: ({ jsonData, logids, timestamp, times_of_day, bins, sensors, distances } = data.base_chart_data || {});
     $: ({ routeids } = data.map_plot_data || {});
-    $: ({ mapMatch } = data.map_snap_data || {}); //from the map snap script 
+    $: ({ mapMatch } = data.map_snap_data || {}); //from the map snap script
+    $: ({ snapData } = data.snap_quality_data || {});
 
     import TodVisualization from '$lib/components/tod_visualization.svelte';
     import MostDataPiechart from '$lib/components/most_data_piechart.svelte';
@@ -11,6 +12,7 @@
     import MostTravelBarChart from '$lib/components/most_travel_bar_chart.svelte';
     import MapPlot from '$lib/components/map_plot.svelte';
     import MapSnap from '$lib/components/map_snap.svelte';
+    import SnapDistanceHistogram from '$lib/components/snap_distance_histogram.svelte';
 
     import { TODchartType, piechartType, myOptions } from "./settings.js"
 
@@ -167,6 +169,12 @@
                 >
                     Map Snapping Plot
                 </button></li>
+            <li><button
+                    class:active={activeTab === 'snap-quality'}
+                    on:click={() => activeTab = 'snap-quality'}
+                >
+                    Snap Quality
+                </button></li>
         </ul>
     </aside>
 
@@ -219,7 +227,14 @@
 
                 {/if}
             </div>
-        
+
+        {:else if activeTab === 'snap-quality'}
+            <div class="h-full">
+                {#if snapData && Object.keys(snapData).length > 0}
+                    <SnapDistanceHistogram {snapData} />
+                {/if}
+            </div>
+
         {/if}
     </main>
 </div>

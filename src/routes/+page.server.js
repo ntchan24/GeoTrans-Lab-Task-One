@@ -1,6 +1,6 @@
 import { extractData } from "$lib/data/processing_script";
 import { load_map_data } from "$lib/data/map_plotter";
-import { load_map_snap_data } from "$lib/data/map_snap";
+import { load_map_snap_data, load_snap_quality_data } from "$lib/data/map_snap";
 import { redirect } from "@sveltejs/kit";
 
 export async function load({locals,url}){
@@ -26,7 +26,8 @@ export async function load({locals,url}){
     return {
     base_chart_data:extractData(),
     map_plot_data: await load_map_data(),
-    map_snap_data:await load_map_snap_data({threshold, mode, headingWeight, neighborWeight, roadTypePriorityWeight})
+    map_snap_data:await load_map_snap_data({threshold, mode, headingWeight, neighborWeight, roadTypePriorityWeight}),
+    snap_quality_data: await load_snap_quality_data()
     };
 }
 

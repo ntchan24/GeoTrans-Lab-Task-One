@@ -337,9 +337,10 @@ function returnPoints(road_data, headingWeight = 0.05, neighborWeight=0.90,  roa
 
                             const winningSnapPointCoordinates = winningSnapPoint.geometry.coordinates
 
-                            //update the coordinates for badpoint 
+                            //update the coordinates for badpoint
                             console.log(winningSnapPointCoordinates)
-                            
+
+                            point.snapDistance = winningSnapPoint.properties.dist
                             point.coords = [winningSnapPointCoordinates[1],winningSnapPointCoordinates[0]]
 
                             point.snapped = true
@@ -550,4 +551,10 @@ export async function load_map_snap_data({threshold, mode, headingWeight, neighb
     const originalData = await Plotter.load_map_data();
     return { mapMatch: originalData.routeids };
 
+}
+
+export async function load_snap_quality_data(){
+    const road_data = loadRoadDataFromFile(".", "edmonton-roads.json")
+    const snapData = returnPoints(road_data)
+    return { snapData }
 }
