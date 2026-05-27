@@ -179,6 +179,14 @@
   // Filter state
   let selectedRoutes = $state(['SE', 'NW', 'CENTRAL', 'RWIS_SW', 'SW']);
 
+  // Sidebar collapse state
+  let sidebarCollapsed = $state(false);
+  function toggleSidebar() {
+    sidebarCollapsed = !sidebarCollapsed;
+    // Let the layout transition begin, then tell MapLibre to recompute size
+    setTimeout(() => { map?.resize?.(); }, 220);
+  }
+
   // Spatial index for region queries
   let spatialIndex = null;
   let spatialPoints = [];
@@ -1021,6 +1029,20 @@
 
 </script>
 
+<div class="snap-layout">
+<aside class="snap-sidebar bg-base-200" class:collapsed={sidebarCollapsed}>
+  <button
+    type="button"
+    class="collapse-toggle"
+    onclick={toggleSidebar}
+    aria-label={sidebarCollapsed ? 'Expand controls' : 'Collapse controls'}
+    title={sidebarCollapsed ? 'Expand controls' : 'Collapse controls'}
+  >
+    {sidebarCollapsed ? '›' : '‹'}
+  </button>
+
+  {#if !sidebarCollapsed}
+  <div class="sidebar-content">
 <div class="py-4">
 
   <div class="px-4 py-2">
@@ -1229,6 +1251,9 @@
   {/if}
 
 </div>
+  </div>
+  {/if}
+</aside>
 
 <div class="map-wrap">
   <a href="https://www.maptiler.com" class="watermark"><img
@@ -1264,16 +1289,60 @@
 
   <!-- <div><p>{JSON.stringify(mapMatch, null, 2)}</p></div> -->
 </div>
+</div>
 
 <style>
 
 
-  .map-wrap {
-    position: relative;
+  .snap-layout {
+    display: flex;
     width: 100%;
     height: calc(100vh - 77px);
-    /* calculate height of the screen (viewport height) minus the heading */
+  }
 
+  .snap-sidebar {
+    width: 14rem;
+    flex-shrink: 0;
+    border-right: 1px solid #e5e7eb;
+    overflow-y: auto;
+    overflow-x: hidden;
+    transition: width 0.2s ease;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .snap-sidebar.collapsed {
+    width: 2rem;
+  }
+
+  .collapse-toggle {
+    width: 100%;
+    padding: 6px 8px;
+    text-align: right;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #e5e7eb;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    color: #4b5563;
+  }
+
+  .collapse-toggle:hover {
+    background: rgba(0, 0, 0, 0.05);
+  }
+
+  .sidebar-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .map-wrap {
+    position: relative;
+    flex: 1;
+    height: 100%;
+    /* fills horizontal space left by the collapsible sidebar */
   }
 
   .map {
