@@ -170,7 +170,12 @@
         </ul>
     </aside>
 
-    <main class="dashboard-content flex-1 p-4">
+    <main
+        class="dashboard-content flex-1"
+        class:p-4={activeTab !== 'map-snap'}
+        class:px-4={activeTab === 'map-snap'}
+        class:pb-4={activeTab === 'map-snap'}
+    >
         {#if activeTab === 'analytics'}
             <div class="grid grid-cols-2 grid-rows-2 gap-6 h-full">
                 <section class="flex flex-col min-h-0">

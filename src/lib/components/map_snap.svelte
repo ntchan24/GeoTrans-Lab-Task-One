@@ -1091,7 +1091,7 @@
 <div class = "controlpanel">
   <div class="px-4">
   <!-- og vs snapped points -->
-  <Switch bind:value = {switchvalue} label= "Choose between original and snapped data" design = "multi" options = {["original", "snapped"]} fontSize = {12}/>
+  <Switch bind:value = {switchvalue} design = "multi" options = {["original", "snapped"]} fontSize = {12}/>
   </div>
   {#if switchvalue === 'snapped'}
     <div class="weight-controls">
