@@ -12,7 +12,7 @@
     import MostTravelBarChart from '$lib/components/most_travel_bar_chart.svelte';
     import MapPlot from '$lib/components/map_plot.svelte';
     import MapSnap from '$lib/components/map_snap.svelte';
-    import SnapDistanceHistogram from '$lib/components/snap_distance_histogram.svelte';
+    import SnapQualityPanel from '$lib/components/snap_quality_panel.svelte';
 
     import { TODchartType, piechartType, myOptions } from "./settings.js"
 
@@ -231,7 +231,7 @@
         {:else if activeTab === 'snap-quality'}
             <div class="h-full">
                 {#if snapData && Object.keys(snapData).length > 0}
-                    <SnapDistanceHistogram {snapData} />
+                    <SnapQualityPanel {snapData} />
                 {/if}
             </div>
 
